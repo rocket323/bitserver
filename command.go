@@ -1,6 +1,7 @@
 package bitserver
 
 import (
+    "log"
 )
 
 type command struct {

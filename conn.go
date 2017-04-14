@@ -92,5 +92,11 @@ func (c *conn) dispatch() (redis.Resp, error) {
     if err != nil {
         return toRespError(err)
     }
+
+    if f := c.s.htable[cmd]; f == nil {
+        return toRespError("unknown command %s", cmd)
+    } else {
+        return f.f(c.s.bc, args)
+    }
 }
 

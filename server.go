@@ -4,7 +4,7 @@ import (
     "sync"
     "net"
     "log"
-    "bitcask"
+    "github.com/rocket323/bitcask"
 )
 
 type Server struct {
