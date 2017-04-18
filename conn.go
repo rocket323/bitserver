@@ -1,23 +1,27 @@
 package bitserver
 
 import (
+    _ "log"
     "net"
     "time"
     "fmt"
+    "bufio"
+    "sync"
     redis "github.com/reborndb/go/redis/resp"
 )
 
 type conn struct {
-    r *bufio.Reader,
-    w *bufio.Writer,
-    mu sync.Mutex,
-    s *Server,
+    r *bufio.Reader
+    w *bufio.Writer
+    mu sync.Mutex
+    s *Server
+    nc net.Conn
 
-    summ string,
-    timeout time.Duration,
+    summ string
+    timeout time.Duration
 }
 
-func newConn(nc, net.Conn, s *Server, timeout int) *conn {
+func newConn(nc net.Conn, s *Server, timeout int) *conn {
     c := &conn{
         nc: nc,
         s: s,
@@ -36,9 +40,9 @@ func (c *conn) String() string {
 
 func (c *conn) serve() error {
     defer func() {
-        c.h.removeConn(c)
+        c.s.removeConn(c)
     }()
-    c.h.addConn(c)
+    c.s.addConn(c)
 
     for {
         response, err := c.handleRequest()
@@ -87,16 +91,23 @@ func (c *conn) handleRequest() (redis.Resp, error) {
     return response, nil
 }
 
-func (c *conn) dispatch() (redis.Resp, error) {
+func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
     cmd, args, err := redis.ParseArgs(request)
     if err != nil {
         return toRespError(err)
     }
 
     if f := c.s.htable[cmd]; f == nil {
-        return toRespError("unknown command %s", cmd)
+        return toRespErrorf("unknown command %s", cmd)
     } else {
         return f.f(c.s.bc, args)
     }
+}
+
+func (c *conn) writeRESP(resp redis.Resp) error {
+    if err := redis.Encode(c.w, resp); err != nil {
+        return err
+    }
+    return c.w.Flush()
 }
 

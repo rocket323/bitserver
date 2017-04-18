@@ -1,7 +1,10 @@
 package bitserver
 
 import (
+    "strings"
     "log"
+    "github.com/rocket323/bitcask"
+    redis "github.com/reborndb/go/redis/resp"
 )
 
 type command struct {
@@ -20,10 +23,11 @@ func register(name string, f CommandFunc, flag CommandFlag) {
     globalCommand[funcName] = &command{name, f, flag}
 }
 
+type CommandFunc func(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error)
 type CommandFlag uint32
 
 const (
-    CmdWrite CommandFunc = 1 << iota
+    CmdWrite CommandFlag = 1 << iota
     CmdReadOnly
 )
 
@@ -32,9 +36,9 @@ func Register(name string, f CommandFunc, flag CommandFlag) {
 }
 
 // GET key
-func GetCmd(bc *BitCask, args [][]byte) (redis.Resp, error) {
+func GetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     if len(args) < 1 {
-        return nil, toRespError("len(args) = %d, expect >= 1", len(args))
+        return toRespErrorf("len(args) = %d, expect >= 1", len(args))
     }
 
     key := args[0]
@@ -48,9 +52,9 @@ func GetCmd(bc *BitCask, args [][]byte) (redis.Resp, error) {
 }
 
 // SET key value [EX seconds]
-func SetCmd(bc *BitCask, args [][]byte) (redis.Resp, error) {
+func SetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     if len(args) < 2 {
-        return toRespError("len(args) = %d, expect >= 2", len(args))
+        return toRespErrorf("len(args) = %d, expect >= 2", len(args))
     }
 
     key := args[0]
@@ -62,5 +66,15 @@ func SetCmd(bc *BitCask, args [][]byte) (redis.Resp, error) {
     } else {
         return redis.NewString("OK"), nil
     }
+}
+
+func CommandCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+    return redis.NewArray(), nil
+}
+
+func init() {
+    Register("set", SetCmd, CmdWrite)
+    Register("get", GetCmd, CmdReadOnly)
+    Register("command", CommandCmd, CmdReadOnly)
 }
 
