@@ -85,7 +85,7 @@ func (c *conn) handleRequest() (redis.Resp, error) {
 
     response, err := c.dispatch(request)
     if err != nil {
-        return nil, err
+        return response, nil
     }
 
     return response, nil

@@ -76,6 +76,7 @@ func (s *Server) Close() {
         return
     }
     s.closed = true
+    s.bc.Close()
 }
 
 func (s *Server) removeConn(c *conn) {
