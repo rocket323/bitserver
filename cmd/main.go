@@ -1,6 +1,7 @@
 package main
 
 import (
+    "flag"
     "log"
     "os"
     "os/signal"
@@ -8,10 +9,21 @@ import (
     "github.com/rocket323/bitserver"
 )
 
+var (
+    listenPort int
+)
+
+func init() {
+    flag.IntVar(&listenPort, "l", 12345, "listen port")
+}
+
 func main() {
+    flag.Parse()
+
     log.SetFlags(log.Lshortfile | log.LstdFlags)
 
     config := bitserver.NewConfig()
+    config.Listen = listenPort
     server, err := bitserver.NewServer(config)
     if err != nil {
         log.Fatal(err)

@@ -19,6 +19,11 @@ type conn struct {
 
     summ string
     timeout time.Duration
+
+    // replication
+    syncFileId int64
+    syncOffset int64
+    isSyncing bool
 }
 
 func newConn(nc net.Conn, s *Server, timeout int) *conn {
@@ -36,6 +41,11 @@ func newConn(nc net.Conn, s *Server, timeout int) *conn {
 
 func (c *conn) String() string {
     return c.summ
+}
+
+func (c *conn) Close() {
+    c.nc.Close()
+    c = nil
 }
 
 func (c *conn) serve() error {

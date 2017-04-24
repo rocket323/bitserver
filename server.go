@@ -22,6 +22,21 @@ type Server struct {
     // conn mutex
     connMu      sync.Mutex
     conns       map[*conn]struct{}
+
+    // 40 bytes, hex random run id for different server
+    runID       []byte
+    repl struct {
+        sync.RWMutex
+        // as maseter
+        slaves map[*conn]chan struct{}
+
+        // as slave
+        masterRunId string
+        masterConnState int32
+        master chan *conn
+        syncFileId  int64
+        syncOffset  int64
+    }
 }
 
 func NewServer(c *Config) (*Server, error) {
@@ -32,7 +47,8 @@ func NewServer(c *Config) (*Server, error) {
         log.Fatal(err)
     }
 
-    l, err := net.Listen("tcp", "0.0.0.0:12345")
+    addr := fmt.Sprintf("0.0.0.0:%s", config.Listen)
+    l, err := net.Listen("tcp", addr)
     if err != nil {
         log.Fatalf("listen failed, err=%s", err)
     }
@@ -51,6 +67,7 @@ func NewServer(c *Config) (*Server, error) {
 }
 
 func (s *Server) Serve() error {
+    log.Printf("listen on %s", s.config.Listen)
     for {
         if nc, err := s.l.Accept(); err != nil {
             log.Println(err)

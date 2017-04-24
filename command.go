@@ -44,7 +44,7 @@ func GetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     key := args[0]
 
     value, err := bc.Get(string(key))
-    if err != nil {
+    if err != nil && err != bitcask.ErrNotFound {
         return toRespError(err)
     } else {
         return redis.NewBulkBytes(value), nil
@@ -68,6 +68,24 @@ func SetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     }
 }
 
+// DEL KEY [KEY ...]
+func DelCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+    if len(args) < 1 {
+        return toRespErrorf("len(args) = %d, expect >= 2", len(args))
+    }
+    keys := args
+    var cnt int64 = 0
+
+    for _, key := range keys {
+        err := bc.Del(string(key))
+        if err != nil {
+            return redis.NewInt(0), err
+        }
+        cnt++
+    }
+    return redis.NewInt(cnt), nil
+}
+
 func CommandCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     return redis.NewArray(), nil
 }
@@ -75,6 +93,7 @@ func CommandCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
 func init() {
     Register("set", SetCmd, CmdWrite)
     Register("get", GetCmd, CmdReadOnly)
+    Register("del", DelCmd, CmdWrite)
     Register("command", CommandCmd, CmdReadOnly)
 }
 
