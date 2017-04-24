@@ -34,6 +34,7 @@ type Server struct {
         masterRunId string
         masterConnState int32
         master chan *conn
+        slaveofReply chan struct{}
         syncFileId  int64
         syncOffset  int64
     }
