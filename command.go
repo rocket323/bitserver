@@ -94,7 +94,8 @@ func PingCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) != 0 {
         return toRespErrorf("len(args) = %d, expect = 0", len(args))
     }
-    return redis.NewString("PONG"), nil
+    return nil, nil
+    // return redis.NewString("PONG"), nil
 }
 
 func CommandCmd(c *conn, args [][]byte) (redis.Resp, error) {

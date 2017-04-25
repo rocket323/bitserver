@@ -40,7 +40,6 @@ func SlaveOfCmd(c *conn, args [][]byte) (redis.Resp, error) {
         }
         return toRespErrorf("sync master has been close")
     case c.s.repl.master <- cc:
-        log.Printf("connect to master %+v", cc)
         <-c.s.repl.slaveofReply
         return redis.NewString("OK"), nil
     }
@@ -122,6 +121,21 @@ LOOP:
     }
 }
 
+func readInt(c *conn) (int64, error) {
+    line, err := c.readLine()
+    if err != nil {
+        return 0, err
+    }
+    if line[0] != '$' {
+        return 0, fmt.Errorf("invalid number, rsp = %s", line)
+    }
+    n, err := strconv.ParseInt(string(line[1:]), 10, 64)
+    if err != nil {
+        return 0, fmt.Errorf("invalid number, rsp = %s, err = %s", line, err)
+    }
+    return n, nil
+}
+
 func (s *Server) bsync(c *conn) error {
     // send bsync command
     deadline := time.Now().Add(time.Second * 5)
@@ -133,22 +147,48 @@ func (s *Server) bsync(c *conn) error {
         log.Println(err)
         return err
     }
+
     log.Printf("start sync from master")
-
+    // sync data files
     for {
-        response, err := c.handleRequest();
+        err := s.syncFromMaster()
         if err != nil {
-            return err
-        }
-        if response == nil {
-            continue
-        }
-
-        if err := c.writeRESP(response); err != nil {
-            return err
+            log.Printf("sync file from master failed, err = %s", err)
         }
     }
     return nil
+}
+
+func (s *Server) syncFromMaster() error {
+    fileId, err := readInt(c)
+    if err != nil {
+        return err
+    }
+    offset, err := readInt(c)
+    if err != nil {
+        return err
+    }
+    length, err := readInt(c)
+    if err != nil {
+        return err
+    }
+
+    path := s.bc.GetDataFilePath(fileId)
+    f, err := os.OpenFile(path, os.O_WRONLY | os.O_CREATE, 0644)
+    if err != nil {
+        return err
+    }
+    defer f.Close()
+
+    _, err = f.Seek(offset, io.SEEK_SET)
+    if err != nil {
+        return err
+    }
+
+    _, err = io.CopyN(f, c.r, length)
+    if err != nil {
+        return err
+    }
 }
 
 func init() {

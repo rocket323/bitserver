@@ -45,8 +45,76 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
         return nil, nil
     }
 
+    err := s.syncDataFiles()
+    if err != nil {
+        log.Println(err)
+        return nil, err
+    }
+
+    activeFileId := s.bc.ActiveFileId()
+    for c.syncFileId < activeFileId {
+        err := s.syncDataFile(c)
+        if err != nil {
+            log.Println(err)
+            return nil, err
+        }
+    }
+
     s.startSlaveReplication(c, args)
     return nil, nil
+}
+
+func (s *Server) syncDataFile(c *conn) error {
+    fileId := c.syncFileId
+    offset := c.syncOffset
+
+    bc := s.bc
+    activeFileId := bc.ActiveFileId()
+
+    path := s.bc.GetDataFilePath(fileId)
+    f, err := os.Open(path)
+    if err != nil {
+        log.Println(err)
+        return err
+    }
+    defer f.Close()
+
+    fi, err := f.Stat()
+    if err != nil {
+        return err
+    }
+
+    // check if more data to sync
+    if offset >= fi.Size() {
+        return nil
+    }
+
+    _, err = f.Seek(offset, io.SEEK_SET)
+    if err != nil {
+        return err
+    }
+    length = fi.Size() - offset
+
+    c.w.WriteString(fmt.Sprintf("$%d\r\n", fileId))
+    c.w.WriteString(fmt.Sprintf("$%d\r\n", offset))
+    c.w.WriteString(fmt.Sprintf("$%d\r\n", length))
+
+    _, err = io.CopyN(c.w, r, length)
+    if err != nil {
+        return err
+    }
+
+    // update offset
+    offset = fi.Size()
+    if fileId < activeFileId {
+        fileId = bc.NextDataFileId(fileId)
+        offset = 0
+    }
+
+    c.syncFileId = fileId
+    c.syncOffset = size
+
+    return c.w.Flush()
 }
 
 func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
@@ -72,12 +140,11 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
                     return
                 }
 
-                err := s.replicationSyncFile(c)
+                err := s.syncDataFile(c)
                 if err != nil {
                     log.Printf("sync slave failed, err=%s", err)
                     return
                 }
-                log.Printf("sync data to slave[%s]", c)
             }
         }
     }(c, ch)
