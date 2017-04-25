@@ -1,11 +1,14 @@
 package bitserver
 
 type Config struct {
-    Listen      string
+    Listen      int
+    Dbpath      string
 }
 
 func NewConfig() *Config {
     return &Config{
+        Listen: 12345,
+        Dbpath: "testdb",
     }
 }
 

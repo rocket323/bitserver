@@ -2,6 +2,7 @@ package bitserver
 
 import (
     "log"
+    "time"
     redis "github.com/reborndb/go/redis/resp"
 )
 
@@ -17,12 +18,13 @@ func (s *Server) initReplication() error {
             case <-s.signal:
                 return
             case <-time.After(pingPeriod):
-                if err := s.replicationFeedSlaves(); err != nil {
+                if err := s.replicationNotifySlaves(); err != nil {
                     log.Printf("ping slaves error - %s", err)
                 }
             }
         }
     }()
+    return nil
 }
 
 func (s *Server) replicationNotifySlaves() error {
@@ -39,6 +41,7 @@ func (s *Server) replicationNotifySlaves() error {
 func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     s := c.s
     if (s.isSlave(c)) {
+        log.Printf("conn %+v is already my slave", c)
         return nil, nil
     }
 
@@ -46,7 +49,7 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return nil, nil
 }
 
-func (s *Server) startSlaveReplication(c *conn, args [][]byte) (redis.Resp, error) {
+func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     ch := make(chan struct{}, 1)
     ch <- struct{}{}
 
@@ -58,7 +61,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) (redis.Resp, erro
         defer func() {
             s.removeConn(c)
             c.Close()
-        }
+        }()
 
         for {
             select {
@@ -69,17 +72,28 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) (redis.Resp, erro
                     return
                 }
 
+                err := s.replicationSyncFile(c)
+                if err != nil {
+                    log.Printf("sync slave failed, err=%s", err)
+                    return
+                }
                 log.Printf("sync data to slave[%s]", c)
             }
         }
     }(c, ch)
 }
 
-func (s *Server) replicationSyncFile() (int, error) {
+func (s *Server) replicationSyncFile(c *conn) error {
+    log.Printf("ping slave %s", c)
+
+    if err := c.writeRESP(redis.NewRequest("PING")); err != nil {
+        return err
+    }
+    return nil
 }
 
 func init() {
     Register("bsync", BSyncCmd, CmdReadOnly)
-    Register("breplconf", ReplConfCmd, CmdReadOnly)
+    // Register("breplconf", ReplConfCmd, CmdReadOnly)
 }
 

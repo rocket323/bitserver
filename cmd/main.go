@@ -11,10 +11,12 @@ import (
 
 var (
     listenPort int
+    dbpath string
 )
 
 func init() {
     flag.IntVar(&listenPort, "l", 12345, "listen port")
+    flag.StringVar(&dbpath, "db", "testdb", "db path")
 }
 
 func main() {
@@ -24,6 +26,7 @@ func main() {
 
     config := bitserver.NewConfig()
     config.Listen = listenPort
+    config.Dbpath = dbpath
     server, err := bitserver.NewServer(config)
     if err != nil {
         log.Fatal(err)

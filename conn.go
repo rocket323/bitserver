@@ -1,12 +1,13 @@
 package bitserver
 
 import (
-    _ "log"
+    "log"
     "net"
     "time"
     "fmt"
     "bufio"
     "sync"
+    "strings"
     redis "github.com/reborndb/go/redis/resp"
 )
 
@@ -88,10 +89,7 @@ func (c *conn) handleRequest() (redis.Resp, error) {
     if err != nil {
         return nil, err
     }
-
-    if request.Type() == redis.TypePing {
-        return nil, nil
-    }
+    log.Printf("receive request: %+v", request)
 
     response, err := c.dispatch(request)
     if err != nil {
@@ -108,9 +106,10 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
     }
 
     if f := c.s.htable[cmd]; f == nil {
+        log.Printf("unknown command %s", cmd)
         return toRespErrorf("unknown command %s", cmd)
     } else {
-        return f.f(c.s.bc, args)
+        return f.f(c, args)
     }
 }
 
@@ -119,5 +118,37 @@ func (c *conn) writeRESP(resp redis.Resp) error {
         return err
     }
     return c.w.Flush()
+}
+
+func (c *conn) ping() error {
+    if err := c.writeRESP(redis.NewRequest("PING")); err != nil {
+        return err
+    }
+    if rsp, err := c.readLine(); err != nil {
+        return err
+    } else if strings.ToLower(string(rsp)) != "+pong" {
+        return fmt.Errorf("invalid response of command ping: %s", rsp)
+    }
+    return nil
+}
+
+func (c *conn) readLine() (line []byte, err error) {
+    // if we read too many \n only, maybe something is wrong.
+    for i := 0; i < 100; i++ {
+        line, err = c.r.ReadSlice('\n')
+        if err != nil {
+            return nil, err
+        } else if line[0] == '\n' {
+            // only \n one line, try again
+            continue
+        }
+        break
+    }
+
+    i := len(line) - 2
+    if i < 0 || line[i] != '\r' {
+        return nil, fmt.Errorf("bad resp line terminator")
+    }
+    return line[:i], nil
 }
 

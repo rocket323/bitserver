@@ -23,7 +23,7 @@ func register(name string, f CommandFunc, flag CommandFlag) {
     globalCommand[funcName] = &command{name, f, flag}
 }
 
-type CommandFunc func(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error)
+type CommandFunc func(c *conn, args [][]byte) (redis.Resp, error)
 type CommandFlag uint32
 
 const (
@@ -36,12 +36,13 @@ func Register(name string, f CommandFunc, flag CommandFlag) {
 }
 
 // GET key
-func GetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+func GetCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) < 1 {
         return toRespErrorf("len(args) = %d, expect >= 1", len(args))
     }
 
     key := args[0]
+    bc := c.s.bc
 
     value, err := bc.Get(string(key))
     if err != nil && err != bitcask.ErrNotFound {
@@ -52,13 +53,14 @@ func GetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
 }
 
 // SET key value [EX seconds]
-func SetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+func SetCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) < 2 {
         return toRespErrorf("len(args) = %d, expect >= 2", len(args))
     }
 
     key := args[0]
     value := args[1]
+    bc := c.s.bc
 
     err := bc.Set(string(key), value)
     if err != nil {
@@ -69,12 +71,13 @@ func SetCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
 }
 
 // DEL KEY [KEY ...]
-func DelCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+func DelCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) < 1 {
         return toRespErrorf("len(args) = %d, expect >= 2", len(args))
     }
     keys := args
     var cnt int64 = 0
+    bc := c.s.bc
 
     for _, key := range keys {
         err := bc.Del(string(key))
@@ -86,7 +89,15 @@ func DelCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
     return redis.NewInt(cnt), nil
 }
 
-func CommandCmd(bc *bitcask.BitCask, args [][]byte) (redis.Resp, error) {
+// PING
+func PingCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    if len(args) != 0 {
+        return toRespErrorf("len(args) = %d, expect = 0", len(args))
+    }
+    return redis.NewString("PONG"), nil
+}
+
+func CommandCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return redis.NewArray(), nil
 }
 
@@ -94,6 +105,7 @@ func init() {
     Register("set", SetCmd, CmdWrite)
     Register("get", GetCmd, CmdReadOnly)
     Register("del", DelCmd, CmdWrite)
+    Register("ping", PingCmd, CmdReadOnly)
     Register("command", CommandCmd, CmdReadOnly)
 }
 
