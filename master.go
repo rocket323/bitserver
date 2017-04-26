@@ -12,8 +12,8 @@ import (
 func (s *Server) initReplication() error {
     s.repl.Lock()
     defer s.repl.Unlock()
-
     s.repl.slaves = make(map[*conn]chan struct{})
+
     go func() {
         for {
             pingPeriod := time.Duration(2) * time.Second

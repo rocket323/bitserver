@@ -35,6 +35,7 @@ type Server struct {
         masterConnState int32
         master chan *conn
         masterAddr string
+
         slaveofReply chan struct{}
         syncFileId  int64
         syncOffset  int64

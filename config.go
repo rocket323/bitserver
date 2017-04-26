@@ -5,7 +5,7 @@ type Config struct {
     Dbpath      string
 }
 
-func NewConfig() *Config {
+func DefaultConfig() *Config {
     return &Config{
         Listen: 12345,
         Dbpath: "testdb",

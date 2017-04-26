@@ -89,7 +89,6 @@ func (c *conn) handleRequest() (redis.Resp, error) {
     if err != nil {
         return nil, err
     }
-    log.Printf("receive request: %+v", request)
 
     response, err := c.dispatch(request)
     if err != nil {
@@ -104,6 +103,7 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
     if err != nil {
         return toRespError(err)
     }
+    // log.Println("receive request:", cmd, args)
 
     if f := c.s.htable[cmd]; f == nil {
         log.Printf("unknown command %s", cmd)

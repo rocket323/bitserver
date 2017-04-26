@@ -24,7 +24,7 @@ func main() {
 
     log.SetFlags(log.Lshortfile | log.LstdFlags)
 
-    config := bitserver.NewConfig()
+    config := bitserver.DefaultConfig()
     config.Listen = listenPort
     config.Dbpath = dbpath
     server, err := bitserver.NewServer(config)
