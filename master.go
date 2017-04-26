@@ -1,6 +1,9 @@
 package bitserver
 
 import (
+    "fmt"
+    "os"
+    "io"
     "log"
     "time"
     redis "github.com/reborndb/go/redis/resp"
@@ -45,12 +48,6 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
         return nil, nil
     }
 
-    err := s.syncDataFiles()
-    if err != nil {
-        log.Println(err)
-        return nil, err
-    }
-
     activeFileId := s.bc.ActiveFileId()
     for c.syncFileId < activeFileId {
         err := s.syncDataFile(c)
@@ -89,17 +86,17 @@ func (s *Server) syncDataFile(c *conn) error {
         return nil
     }
 
-    _, err = f.Seek(offset, io.SEEK_SET)
+    _, err = f.Seek(offset, os.SEEK_SET)
     if err != nil {
         return err
     }
-    length = fi.Size() - offset
+    length := fi.Size() - offset
 
     c.w.WriteString(fmt.Sprintf("$%d\r\n", fileId))
     c.w.WriteString(fmt.Sprintf("$%d\r\n", offset))
     c.w.WriteString(fmt.Sprintf("$%d\r\n", length))
 
-    _, err = io.CopyN(c.w, r, length)
+    _, err = io.CopyN(c.w, f, length)
     if err != nil {
         return err
     }
@@ -112,7 +109,7 @@ func (s *Server) syncDataFile(c *conn) error {
     }
 
     c.syncFileId = fileId
-    c.syncOffset = size
+    c.syncOffset = offset
 
     return c.w.Flush()
 }

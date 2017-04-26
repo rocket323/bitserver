@@ -1,6 +1,9 @@
 package bitserver
 
 import (
+    "io"
+    "os"
+    "strconv"
     "strings"
     "time"
     "fmt"
@@ -151,15 +154,16 @@ func (s *Server) bsync(c *conn) error {
     log.Printf("start sync from master")
     // sync data files
     for {
-        err := s.syncFromMaster()
+        err := s.syncFromMaster(c)
         if err != nil {
             log.Printf("sync file from master failed, err = %s", err)
+            return err
         }
     }
     return nil
 }
 
-func (s *Server) syncFromMaster() error {
+func (s *Server) syncFromMaster(c *conn) error {
     fileId, err := readInt(c)
     if err != nil {
         return err
@@ -172,6 +176,7 @@ func (s *Server) syncFromMaster() error {
     if err != nil {
         return err
     }
+    log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
 
     path := s.bc.GetDataFilePath(fileId)
     f, err := os.OpenFile(path, os.O_WRONLY | os.O_CREATE, 0644)
@@ -180,7 +185,7 @@ func (s *Server) syncFromMaster() error {
     }
     defer f.Close()
 
-    _, err = f.Seek(offset, io.SEEK_SET)
+    _, err = f.Seek(offset, os.SEEK_SET)
     if err != nil {
         return err
     }
@@ -189,6 +194,7 @@ func (s *Server) syncFromMaster() error {
     if err != nil {
         return err
     }
+    return nil
 }
 
 func init() {
