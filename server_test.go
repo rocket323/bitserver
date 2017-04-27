@@ -84,6 +84,10 @@ func testGetConn(c *C, port int) *testConn {
     }
 }
 
+func (tc *testConn) Close() {
+    tc.nc.Close()
+}
+
 func (tc *testConn) doCmd(c *C, cmd string, args ...interface{}) redis.Resp {
     r := bufio.NewReaderSize(tc.nc, 32)
     w := bufio.NewWriterSize(tc.nc, 32)
