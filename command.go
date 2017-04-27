@@ -1,6 +1,7 @@
 package bitserver
 
 import (
+    "strconv"
     "strings"
     "log"
     "github.com/rocket323/bitcask"
@@ -102,11 +103,56 @@ func CommandCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return redis.NewArray(), nil
 }
 
+// ROLE
+func RoleCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    if len(args) != 0 {
+        return toRespErrorf("len(args) = %d, expect = 0", len(args))
+    }
+    arr := redis.NewArray()
+    s := c.s
+    if s.repl.masterAddr == "" {
+        // master
+        arr.Append(redis.NewBulkBytesWithString("master"))
+        s.repl.Lock()
+        defer s.repl.Unlock()
+        slaves := redis.NewArray()
+        for slave, _ := range s.repl.slaves {
+            a := redis.NewArray()
+            if addr := slave.nc.RemoteAddr(); addr == nil {
+                continue
+            } else {
+                a.Append(redis.NewBulkBytesWithString(strings.Split(addr.String(), ":")[0]))
+            }
+            // append slave listening port, offset
+            slaves.Append(a)
+        }
+        arr.Append(slaves)
+    } else {
+        // slave
+        arr.Append(redis.NewBulkBytesWithString("slave"))
+        seps := strings.Split(s.repl.masterAddr, ":")
+        if len(seps) == 2 {
+            port, err := strconv.ParseInt(seps[1], 10, 16)
+            if err != nil {
+                return toRespError(err)
+            }
+            arr.Append(redis.NewBulkBytesWithString(seps[0]))
+            arr.Append(redis.NewInt(int64(port)))
+        } else {
+            return toRespErrorf("invalid master addr, must ip:port, but %s", s.repl.masterAddr)
+        }
+        arr.Append(redis.NewInt(s.repl.syncFileId))
+        arr.Append(redis.NewInt(s.repl.syncOffset))
+    }
+    return arr, nil
+}
+
 func init() {
+    Register("command", CommandCmd, CmdReadOnly)
     Register("set", SetCmd, CmdWrite)
     Register("get", GetCmd, CmdReadOnly)
     Register("del", DelCmd, CmdWrite)
     Register("ping", PingCmd, CmdReadOnly)
-    Register("command", CommandCmd, CmdReadOnly)
+    Register("role", RoleCmd, CmdReadOnly)
 }
 

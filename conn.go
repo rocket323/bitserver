@@ -104,11 +104,16 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
         return toRespError(err)
     }
     // log.Println("receive request:", cmd, args)
+    s := c.s
 
     if f := c.s.htable[cmd]; f == nil {
         log.Printf("unknown command %s", cmd)
         return toRespErrorf("unknown command %s", cmd)
     } else {
+        if len(s.repl.masterAddr) > 0 && f.flag&CmdWrite > 0 {
+            return toRespErrorf("READONLY You can't write against a read only slave.")
+        }
+
         return f.f(c, args)
     }
 }

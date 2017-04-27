@@ -1,7 +1,6 @@
 package bitserver
 
 import (
-    "io"
     "os"
     "strconv"
     "strings"
@@ -115,6 +114,7 @@ LOOP:
             }()
             log.Printf("slaveof %s", s.repl.masterAddr)
         } else {
+            s.repl.masterAddr = ""
             log.Printf("slaveof no one")
         }
 
@@ -146,7 +146,16 @@ func (s *Server) bsync(c *conn) error {
         log.Println(err)
         return err
     }
-    if err := c.writeRESP(redis.NewRequest("BSYNC", "", "")); err != nil {
+
+    activeFileId := s.bc.ActiveFileId()
+    path := s.bc.GetDataFilePath(activeFileId)
+    fi, err := os.Stat(path)
+    if err != nil {
+        return err
+    }
+    offset := fi.Size()
+
+    if err := c.writeRESP(redis.NewRequest("BSYNC", "", activeFileId, offset)); err != nil {
         log.Println(err)
         return err
     }
@@ -178,20 +187,9 @@ func (s *Server) syncFromMaster(c *conn) error {
     }
     log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
 
-    path := s.bc.GetDataFilePath(fileId)
-    f, err := os.OpenFile(path, os.O_WRONLY | os.O_CREATE, 0644)
+    err = s.bc.SyncFile(fileId, offset, length, c.r)
     if err != nil {
-        return err
-    }
-    defer f.Close()
-
-    _, err = f.Seek(offset, os.SEEK_SET)
-    if err != nil {
-        return err
-    }
-
-    _, err = io.CopyN(f, c.r, length)
-    if err != nil {
+        log.Println(err)
         return err
     }
     return nil

@@ -74,6 +74,7 @@ func (s *testReplSuite) TestReplication(c *C) {
 
     // slave sync master
     s.doCmdMustOK(c, slave.port, "SLAVEOF", "127.0.0.1", master.port)
+    time.Sleep(2000 * time.Millisecond)
     resp := s.doCmd(c, slave.port, "GET", "a")
     c.Assert(resp, DeepEquals, redis.NewBulkBytesWithString("100"))
 

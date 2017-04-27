@@ -1,6 +1,7 @@
 package bitserver
 
 import (
+    "strconv"
     "fmt"
     "os"
     "io"
@@ -16,7 +17,7 @@ func (s *Server) initReplication() error {
 
     go func() {
         for {
-            pingPeriod := time.Duration(2) * time.Second
+            pingPeriod := time.Duration(1) * time.Second
             select {
             case <-s.signal:
                 return
@@ -42,11 +43,28 @@ func (s *Server) replicationNotifySlaves() error {
 
 // BSYNC runId fileId offset
 func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    if len(args) != 3 {
+        return toRespErrorf("len(args) = %d, expect = 3", len(args))
+    }
+
     s := c.s
     if (s.isSlave(c)) {
         log.Printf("conn %+v is already my slave", c)
         return nil, nil
     }
+
+    // runId := string(args[0])
+
+    fileId, err := strconv.ParseInt(string(args[1]), 10, 64)
+    if err != nil {
+        return nil, err
+    }
+    offset, err := strconv.ParseInt(string(args[2]), 10, 64)
+    if err != nil {
+        return nil, err
+    }
+    c.syncFileId = fileId
+    c.syncOffset = offset
 
     activeFileId := s.bc.ActiveFileId()
     for c.syncFileId < activeFileId {
@@ -85,6 +103,7 @@ func (s *Server) syncDataFile(c *conn) error {
     if offset >= fi.Size() {
         return nil
     }
+    log.Printf("sync dataFile %d %d", fileId, offset)
 
     _, err = f.Seek(offset, os.SEEK_SET)
     if err != nil {
@@ -122,6 +141,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     s.repl.slaves[c] = ch
     s.repl.Unlock()
 
+    log.Println("start sync to slave %s", c)
     go func(c *conn, ch chan struct{}) {
         defer func() {
             s.removeConn(c)
@@ -145,15 +165,6 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
             }
         }
     }(c, ch)
-}
-
-func (s *Server) replicationSyncFile(c *conn) error {
-    log.Printf("ping slave %s", c)
-
-    if err := c.writeRESP(redis.NewRequest("PING")); err != nil {
-        return err
-    }
-    return nil
 }
 
 func init() {
