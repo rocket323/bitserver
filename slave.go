@@ -103,18 +103,22 @@ LOOP:
         if c != nil {
             masterAddr := c.nc.RemoteAddr().String()
             s.repl.masterAddr = masterAddr
+            activeFileId := s.bc.ActiveFileId()
+            path := s.bc.GetDataFilePath(activeFileId)
+            s.bc.EnableCache(false)
 
-            go func() {
+            go func(activeFileId int64, path string) {
                 defer func() {
                     lost <- 0
                 }()
                 defer c.Close()
-                err := s.bsync(c)
+                err := s.bsync(c, activeFileId, path)
                 log.Printf("slave %s do bsync err - %s", c, err)
-            }()
+            }(activeFileId, path)
             log.Printf("slaveof %s", s.repl.masterAddr)
         } else {
             s.repl.masterAddr = ""
+            s.bc.EnableCache(true)
             log.Printf("slaveof no one")
         }
 
@@ -139,7 +143,7 @@ func readInt(c *conn) (int64, error) {
     return n, nil
 }
 
-func (s *Server) bsync(c *conn) error {
+func (s *Server) bsync(c *conn, activeFileId int64, path string) error {
     // send bsync command
     deadline := time.Now().Add(time.Second * 5)
     if err := c.nc.SetWriteDeadline(deadline); err != nil {
@@ -147,8 +151,6 @@ func (s *Server) bsync(c *conn) error {
         return err
     }
 
-    activeFileId := s.bc.ActiveFileId()
-    path := s.bc.GetDataFilePath(activeFileId)
     fi, err := os.Stat(path)
     if err != nil {
         return err

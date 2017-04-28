@@ -85,7 +85,7 @@ func (s *testReplSuite) TestReplication(c *C) {
 
     s.doCmdMustOK(c, master.port, "SET", "b", "100")
 
-    time.Sleep(500 * time.Millisecond)
+    time.Sleep(2000 * time.Millisecond)
     resp = s.doCmd(c, slave.port, "GET", "b")
     c.Assert(resp, DeepEquals, redis.NewBulkBytesWithString("100"))
 

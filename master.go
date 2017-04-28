@@ -141,7 +141,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     s.repl.slaves[c] = ch
     s.repl.Unlock()
 
-    log.Println("start sync to slave %s", c)
+    log.Printf("start sync to slave %s", c)
     go func(c *conn, ch chan struct{}) {
         defer func() {
             s.removeConn(c)
