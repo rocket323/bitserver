@@ -80,7 +80,6 @@ LOOP:
         case <-s.signal:
             exit = true
         case c = <-s.repl.master:
-            log.Printf("get master conn %+v", c)
             needSlaveOfReply = true
         case <-retryTimer.C:
             log.Printf("try reconnect to master %s", s.repl.masterAddr)
