@@ -41,6 +41,10 @@ func (s *Server) replicationNotifySlaves() error {
     return nil
 }
 
+func BReplConfCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    return nil, nil
+}
+
 // BSYNC runId fileId offset
 func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) != 3 {
@@ -169,6 +173,6 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
 
 func init() {
     Register("bsync", BSyncCmd, CmdReadOnly)
-    Register("breplconf", ReplConfCmd, CmdReadOnly)
+    Register("breplconf", BReplConfCmd, CmdReadOnly)
 }
 
