@@ -14,15 +14,57 @@ import (
 
 func Test(t *testing.T) { TestingT(t) }
 
-type serverSuite struct {
-    s *Server
-    path string
+type testSvrNode struct {
     port int
+    path string
+    svr *Server
 }
 
-var _ = Suite(&serverSuite{})
+func (nd *testSvrNode) Close() {
+    nd.svr.Close()
+}
 
-func testCreateServer(c *C, port int, dbpath string) *Server {
+func (s *testSvrNode) doCmd(c *C, cmd string, args ...interface{}) redis.Resp {
+    nc := testGetConn(c, s.port)
+    defer nc.Close()
+    return nc.doCmd(c, cmd, args...)
+}
+
+func (s *testSvrNode) checkOK(c *C, cmd string, args ...interface{}) {
+    nc := testGetConn(c, s.port)
+    defer nc.Close()
+    nc.checkOK(c, cmd, args...)
+}
+
+func (s *testSvrNode) checkInt(c *C, cmd string, args ...interface{}) {
+    nc := testGetConn(c, s.port)
+    defer nc.Close()
+    nc.checkInt(c, cmd, args...)
+}
+
+func (s *testSvrNode) checkSting(c *C, cmd string, args ...interface{}) {
+    nc := testGetConn(c, s.port)
+    defer nc.Close()
+    nc.checkString(c, cmd, args...)
+}
+
+func (s *testSvrNode) checkIntArray(c *C, cmd string, args ...interface{}) {
+    nc := testGetConn(c, s.port)
+    defer nc.Close()
+    nc.checkIntArray(c, cmd, args...)
+}
+
+func (s *testSvrNode) checkRole(c *C, expect string) {
+    r := s.doCmd(c, "ROLE")
+    resp, ok := r.(*redis.Array)
+    c.Assert(ok, Equals, true)
+    c.Assert(resp.Value, Not(HasLen), 0)
+    role, ok := resp.Value[0].(*redis.BulkBytes)
+    c.Assert(ok, Equals, true)
+    c.Assert(string(role.Value), Equals, expect)
+}
+
+func testCreateServer(c *C, port int, dbpath string) *testSvrNode {
     config := DefaultConfig()
     config.Dbpath = dbpath
     config.Listen = port
@@ -33,8 +75,20 @@ func testCreateServer(c *C, port int, dbpath string) *Server {
         s.Serve()
     }()
 
-    return s
+    node := &testSvrNode{
+        port: port,
+        path: path,
+        svr: s
+    }
+
+    return node
 }
+
+type serverSuite struct {
+    s *testSvrNode
+}
+
+var _ = Suite(&serverSuite{})
 
 func (s *serverSuite) SetUpSuite(c *C) {
     s.port = 12345
@@ -121,14 +175,22 @@ func (tc *testConn) checkString(c *C, expect string, cmd string, args ...interfa
     }
 }
 
-func (s *serverSuite) checkOK(c *C, cmd string, args ...interface{}) {
-    tc := testGetConn(c, s.port)
-    tc.checkOK(c, cmd, args...)
+func (tc *testConn) checkInt(c *C, expect int64, cmd string, args ...interface{}) {
+    resp := tc.doCmd(c, cmd, args...)
+    c.Assert(resp, DeepEquals, redis.NewInt(expect))
 }
 
-func (s *serverSuite) checkString(c *C, expect string, cmd string, args ...interface{}) {
-    tc := testGetConn(c, s.port)
-    tc.checkString(c, expect, cmd, args...)
+func (tc *testConn) checkIntArray(c *C, expect []int64, cmd string, args ...interface{}) {
+    resp := tc.doCmd(c, cmd, args...)
+    v, ok := resp.(*redis.Array)
+    c.Assert(ok, Equals, true)
+    c.Assert(v.Value, HasLen, len(expect))
+
+    for i, vv := range v.Value {
+        b, ok := vv.(*redis.Int)
+        c.Assert(ok, Equals, true)
+        c.Assert(b.Value, Equals, expect[i])
+    }
 }
 
 func init() {
@@ -136,12 +198,14 @@ func init() {
 }
 
 func (s *serverSuite) TestServer(c *C) {
-    k1 := randomKey(c)
-    s.checkOK(c, "set", k1, "hello")
-    k2 := randomKey(c)
-    s.checkOK(c, "set", k2, "world")
+    svr := s.s
 
-    s.checkString(c, "hello", "get", k1)
-    s.checkString(c, "world", "get", k2)
+    k1 := randomKey(c)
+    svr.checkOK(c, "set", k1, "hello")
+    k2 := randomKey(c)
+    svr.checkOK(c, "set", k2, "world")
+
+    svr.checkString(c, "hello", "get", k1)
+    svr.checkString(c, "world", "get", k2)
 }
 

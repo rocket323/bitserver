@@ -169,6 +169,6 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
 
 func init() {
     Register("bsync", BSyncCmd, CmdReadOnly)
-    // Register("breplconf", ReplConfCmd, CmdReadOnly)
+    Register("breplconf", ReplConfCmd, CmdReadOnly)
 }
 

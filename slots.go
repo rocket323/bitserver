@@ -290,6 +290,15 @@ func migrate(addr string, timeout time.Duration, keys ...[]byte) (int64, error) 
         log.Printf("command restore ok, addr = %s, len(keys) = %d", addr, len(keys))
         return nil
     }
+
+    // delete from local
+    for i, key := range keys {
+        err := bc.Del(key)
+        if err != nil {
+            log.Printf("del key[%v] failed, err = %s", key, err)
+        }
+    }
+    return len(keys), nil
 }
 
 func init() {
