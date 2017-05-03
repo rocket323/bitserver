@@ -12,7 +12,20 @@ import (
 
 const (
     MaxSlotNum = 1024
+    MaxExpireAt = 1e15
 )
+
+func TTLmsToExpireAt(ttlms int64) (int64, bool) {
+    if ttlms < 0 || ttlms > MaxExpireAt {
+        return 0, false
+    }
+    nowms := int64(time.Now().UnixNano()) / int64(time.Millisecond)
+    expireat := nowms + ttlms
+    if expireat > MaxExpireAt {
+        return 0, false
+    }
+    return expireat, true
+}
 
 func HashTag(key []byte) []byte {
     part := key
@@ -72,7 +85,7 @@ func SlotsInfoCmd(c *conn, args [][]byte) (redis.Resp, error) {
 
     resp := redis.NewArray()
     for slot := uint32(start); slot < uint32(limit) && slot < MaxSlotNum; slot++ {
-        if key, err := firstKeyUnderSlot(slot); err != nil {
+        if key, err := bc.FirstKeyUnderSlot(slot); err != nil {
             return toRespError(err)
         } else {
             var cnt int
@@ -113,7 +126,7 @@ func SlotsMgrtOneCmd(c *conn, args [][]byte) (redis.Resp, error) {
     addr := fmt.Sprintf("%s:%d", host, port)
 
     log.Printf("migrate one, addr = %s, timeout = %d, key = %v", addr, timeout, key)
-    n, err := migrateOne(addr, timeout, key)
+    n, err := migrateOne(c, addr, timeout, key)
     if err != nil {
         return toRespError(err)
     }
@@ -145,12 +158,13 @@ func SlotsMgrtSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
     }
     addr := fmt.Sprintf("%s:%d", host, port)
 
+    bc := c.s.bc
     log.Printf("migrate slot, addr = %s, timeout = %d, slot = %d", addr, timeout, slot)
-    key, err := firstKeyUnderSlot(uint32(slot))
+    key, err := bc.FirstKeyUnderSlot(uint32(slot))
     if err != nil || key == nil {
         return toRespError(err)
     }
-    n, err := migrateOne(addr, timeout, key)
+    n, err := migrateOne(c, addr, timeout, key)
     if err != nil {
         return toRespError(err)
     }
@@ -190,9 +204,9 @@ func SlotsMgrtTagOneCmd(c *conn, args [][]byte) (redis.Resp, error) {
     log.Printf("migrate one with tag, addr = %s, timeout = %d, key = %v", addr, timeout, key)
     var n int64
     if tag := HashTag(key); len(tag) == len(key) {
-        n, err = migrateOne(addr, timeout, key)
+        n, err = migrateOne(c, addr, timeout, key)
     } else {
-        n, err = migrateTag(addr, timeout, tag)
+        n, err = migrateTag(c, addr, timeout, tag)
     }
 
     if err != nil {
@@ -226,16 +240,17 @@ func SlotsMgrtTagSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
     }
     addr := fmt.Sprintf("%s:%d", host, port)
 
-    key, err := firstKeyUnderSlot(uint32(slot))
+    bc := c.s.bc
+    key, err := bc.FirstKeyUnderSlot(uint32(slot))
     if err != nil || key == nil {
         return toRespError(err)
     }
 
     var n int64
     if tag := HashTag(key); len(tag) == len(key) {
-        n, err = migrateOne(addr, timeout, key)
+        n, err = migrateOne(c, addr, timeout, key)
     } else {
-        n, err = migrateTag(addr, timeout, tag)
+        n, err = migrateTag(c, addr, timeout, tag)
     }
     if err != nil {
         return toRespError(err)
@@ -257,6 +272,7 @@ func SlotsRestoreCmd(c *conn, args [][]byte) (redis.Resp, error) {
         return toRespErrorf("len(args) = %d, expect != 0 && mod 3 = 0", len(args))
     }
 
+    bc := c.s.bc
     num := len(args) / 3
     for i := 0; i < num; i++ {
         key := args[i * 3]
@@ -276,7 +292,7 @@ func SlotsRestoreCmd(c *conn, args [][]byte) (redis.Resp, error) {
         }
 
         log.Printf("restore key = %v", key)
-        if err := restore(key, expireAt, value); err != nil {
+        if err := bc.SetWithExpr(key, value, uint32(expireAt)); err != nil {
             log.Printf("restore key[%v] failed, err = %s", key, err)
             return toRespError(err)
         }
@@ -286,8 +302,8 @@ func SlotsRestoreCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return redis.NewString("OK"), nil
 }
 
-func migrateOne(addr string, timeout time.Duration, key []byte) (int64, error) {
-    n, err := migrate(addr, timeout, key)
+func migrateOne(c *conn, addr string, timeout time.Duration, key []byte) (int64, error) {
+    n, err := migrate(c, addr, timeout, key)
     if err != nil {
         log.Printf("migrate one failed, err = %s", err)
         return 0, err
@@ -295,12 +311,13 @@ func migrateOne(addr string, timeout time.Duration, key []byte) (int64, error) {
     return n, nil
 }
 
-func migrateTag(addr string, timeout time.Duration, tag []byte) (int64, error) {
-    keys, err := allKeysWithTag(tag)
+func migrateTag(c *conn, addr string, timeout time.Duration, tag []byte) (int64, error) {
+    bc := c.s.bc
+    keys, err := bc.AllKeysWithTag(tag)
     if err != nil || len(keys) == 0 {
         return 0, err
     }
-    n, err := migrate(addr, timeout, keys...)
+    n, err := migrate(c, addr, timeout, keys...)
     if err != nil {
         log.Printf("migrate tag failed, err = %s", err)
         return 0, err
@@ -308,32 +325,17 @@ func migrateTag(addr string, timeout time.Duration, tag []byte) (int64, error) {
     return n, nil
 }
 
-func migrate(addr string, timeout time.Duration, keys ...[]byte) (int64, error) {
+func migrate(c *conn, addr string, timeout time.Duration, keys ...[]byte) (int64, error) {
     bc := c.s.bc
 
-    cmd := redis.NewArray()
-    cmd.AppendBulkBytes([]byte("slotsrestore"))
-    for i, key := range keys {
-        value, err := bc.Get(key)
-        if err != nil {
-            return 0, err
-        }
-        // TODO get ttlms
-        cmd.AppendBulkBytes(key)
-        cmd.AppendBulkBytes([]byte(fmt.Sprintf("%d", 0)))
-        cmd.AppendBulkBytes(value)
-    }
-
-    if err := DoMustOK(cmd, timeout); err != nil {
-        log.Printf("command restore failed, addr = %s, len(keys) = %d, err = %s", addr, len(keys), err)
+    if err := doMigrate(bc, addr, timeout, keys...); err != nil {
+        log.Printf("migrate failed, err = %s", err)
         return 0, err
-    } else {
-        log.Printf("command restore ok, addr = %s, len(keys) = %d", addr, len(keys))
     }
 
     // delete from local
-    for i, key := range keys {
-        err := bc.Del(key)
+    for _, key := range keys {
+        err := bc.Del(string(key))
         if err != nil {
             log.Printf("del key[%v] failed, err = %s", key, err)
         }

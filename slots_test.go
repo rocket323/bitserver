@@ -30,6 +30,10 @@ func (s *testSlotsSuite) TearDownSuite(c *C) {
     }
 }
 
+func (s *testSlotsSuite) TestSlotsHashKey(c *C) {
+    s.src.checkIntArray(c, []int64{579, 1017, 879}, "slotshashkey", "a", "b", "c")
+}
+
 func (s *testSlotsSuite) TestSlotsMgrtOne(c *C) {
     src := s.src
     dst := s.dst
