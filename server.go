@@ -11,7 +11,6 @@ import (
 
 type Server struct {
     mu          sync.Mutex
-    closed      bool
 
     bc          *bitcask.BitCask
     config      *Config
@@ -40,6 +39,16 @@ type Server struct {
         syncFileId  int64
         syncOffset  int64
     }
+
+    counters struct {
+        clients         int64
+        commands        int64
+        commandsFailed  int64
+        syncTotalBytes  int64
+        syncFull        int64
+        syncPartialOK   int64
+        syncPartialErr  int64
+    }
 }
 
 func NewServer(c *Config) (*Server, error) {
@@ -57,7 +66,6 @@ func NewServer(c *Config) (*Server, error) {
     }
 
     server := &Server{
-        closed: false,
         bc: bc,
         config: c,
         htable: globalCommand,
@@ -109,17 +117,29 @@ func (s *Server) Close() {
     s.mu.Lock()
     defer s.mu.Unlock()
 
-    if s.closed {
-        return
-    }
-    s.closed = true
     s.bc.Close()
+    closeConns()
 }
 
 func (s *Server) removeConn(c *conn) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    delete(s.conns, c)
 }
 
 func (s *Server) addConn(c *conn) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.conns[c] = struct{}{}
+}
+
+func (s *Server) closeConns() {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    for c, _ := range s.conns {
+        c.Close()
+    }
+    s.conns = make(map[*conn]struct{})
 }
 
 func toRespError(err error) (redis.Resp, error) {
