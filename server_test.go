@@ -14,6 +14,8 @@ import (
 
 func Test(t *testing.T) { TestingT(t) }
 
+// var _ = Suite(&serverSuite{})
+
 type testSvrNode struct {
     port int
     path string
@@ -36,22 +38,22 @@ func (s *testSvrNode) checkOK(c *C, cmd string, args ...interface{}) {
     nc.checkOK(c, cmd, args...)
 }
 
-func (s *testSvrNode) checkInt(c *C, cmd string, args ...interface{}) {
+func (s *testSvrNode) checkInt(c *C, expect int64, cmd string, args ...interface{}) {
     nc := testGetConn(c, s.port)
     defer nc.Close()
-    nc.checkInt(c, cmd, args...)
+    nc.checkInt(c, expect, cmd, args...)
 }
 
-func (s *testSvrNode) checkSting(c *C, cmd string, args ...interface{}) {
+func (s *testSvrNode) checkString(c *C, expect string, cmd string, args ...interface{}) {
     nc := testGetConn(c, s.port)
     defer nc.Close()
-    nc.checkString(c, cmd, args...)
+    nc.checkString(c, expect, cmd, args...)
 }
 
-func (s *testSvrNode) checkIntArray(c *C, cmd string, args ...interface{}) {
+func (s *testSvrNode) checkIntArray(c *C, expect []int64, cmd string, args ...interface{}) {
     nc := testGetConn(c, s.port)
     defer nc.Close()
-    nc.checkIntArray(c, cmd, args...)
+    nc.checkIntArray(c, expect, cmd, args...)
 }
 
 func (s *testSvrNode) checkRole(c *C, expect string) {
@@ -77,8 +79,8 @@ func testCreateServer(c *C, port int, dbpath string) *testSvrNode {
 
     node := &testSvrNode{
         port: port,
-        path: path,
-        svr: s
+        path: dbpath,
+        svr: s,
     }
 
     return node
@@ -88,14 +90,12 @@ type serverSuite struct {
     s *testSvrNode
 }
 
-var _ = Suite(&serverSuite{})
-
 func (s *serverSuite) SetUpSuite(c *C) {
-    s.port = 12345
-    s.path = c.MkDir()
-    log.Printf("store path: %s", s.path)
+    port := 12345
+    path := c.MkDir()
+    log.Printf("store path: %s", path)
 
-    s.s = testCreateServer(c, s.port, s.path)
+    s.s = testCreateServer(c, port, path)
 }
 
 func (s *serverSuite) TearDownSuite(c *C) {
@@ -195,6 +195,7 @@ func (tc *testConn) checkIntArray(c *C, expect []int64, cmd string, args ...inte
 
 func init() {
     rand.Seed(time.Now().UnixNano())
+    log.SetFlags(log.Lshortfile | log.LstdFlags)
 }
 
 func (s *serverSuite) TestServer(c *C) {

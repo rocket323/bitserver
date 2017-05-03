@@ -161,12 +161,15 @@ func SlotsMgrtSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
     bc := c.s.bc
     log.Printf("migrate slot, addr = %s, timeout = %d, slot = %d", addr, timeout, slot)
     key, err := bc.FirstKeyUnderSlot(uint32(slot))
-    if err != nil || key == nil {
-        return toRespError(err)
-    }
-    n, err := migrateOne(c, addr, timeout, key)
     if err != nil {
         return toRespError(err)
+    }
+    var n int64 = 0
+    if key != nil {
+        n, err = migrateOne(c, addr, timeout, key)
+        if err != nil {
+            return toRespError(err)
+        }
     }
 
     resp := redis.NewArray()
@@ -328,19 +331,21 @@ func migrateTag(c *conn, addr string, timeout time.Duration, tag []byte) (int64,
 func migrate(c *conn, addr string, timeout time.Duration, keys ...[]byte) (int64, error) {
     bc := c.s.bc
 
-    if err := doMigrate(bc, addr, timeout, keys...); err != nil {
+    cnt, err := doMigrate(bc, addr, timeout, keys...);
+    if err != nil {
         log.Printf("migrate failed, err = %s", err)
         return 0, err
     }
 
     // delete from local
     for _, key := range keys {
-        err := bc.Del(string(key))
+        err := bc.DelLocal(string(key))
         if err != nil {
             log.Printf("del key[%v] failed, err = %s", key, err)
         }
     }
-    return int64(len(keys)), nil
+    log.Printf("%d keys migrated", cnt)
+    return cnt, nil
 }
 
 func init() {

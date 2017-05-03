@@ -151,33 +151,41 @@ func putMgrtConn(addr string, c *mgrtConn) {
     }
 }
 
-func doMigrate(bc *bitcask.BitCask, addr string, timeout time.Duration, keys ...[]byte) error {
+func doMigrate(bc *bitcask.BitCask, addr string, timeout time.Duration, keys ...[]byte) (int64, error) {
     c, err := getMgrtConn(addr, timeout)
     if err != nil {
         log.Printf("connect to %s failed, timeout = %d, err = %s", addr, timeout, err)
-        return err
+        return 0, err
     }
     defer putMgrtConn(addr, c)
 
     cmd := redis.NewArray()
     cmd.AppendBulkBytes([]byte("slotsrestore"))
+    var cnt int64 = 0
     for _, key := range keys {
         value, err := bc.Get(string(key))
         if err != nil {
-            return err
+            log.Printf("mgrt key[%s] missing", key)
+            continue
         }
         // TODO get ttlms
         cmd.AppendBulkBytes(key)
         cmd.AppendBulkBytes([]byte(fmt.Sprintf("%d", 0)))
         cmd.AppendBulkBytes(value)
+        cnt++
+    }
+
+    if cnt  == 0 {
+        log.Printf("no key to migrate")
+        return 0, nil
     }
 
     if err := c.DoMustOK(cmd, timeout); err != nil {
         log.Printf("command restore failed, addr = %s, len(keys) = %d, err = %s", addr, len(keys), err)
-        return err
+        return 0, err
     } else {
         log.Printf("command restore ok, addr = %s, len(keys) = %d", addr, len(keys))
-        return nil
+        return cnt, nil
     }
 }
 
