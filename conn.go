@@ -12,9 +12,15 @@ import (
 )
 
 type conn struct {
+    /*
+        we read request from the conn goroutine,
+        but may write resp from other goroutine,
+        so we only need write lock.
+    */
+    wLock sync.Mutex
+
     r *bufio.Reader
     w *bufio.Writer
-    mu sync.Mutex
     s *Server
     nc net.Conn
 
@@ -31,12 +37,11 @@ func newConn(nc net.Conn, s *Server, timeout int) *conn {
     c := &conn{
         nc: nc,
         s: s,
+        r: bufio.NewReader(nc),
+        w: bufio.NewWriter(nc),
+        summ: fmt.Sprintf("<local> %s -- %s <remote>", nc.LocalAddr(), nc.RemoteAddr()),
+        timeout: time.Duration(timeout) * time.Second,
     }
-
-    c.r = bufio.NewReader(nc)
-    c.w = bufio.NewWriter(nc)
-    c.summ = fmt.Sprintf("<local> %s -- %s <remote>", nc.LocalAddr(), nc.RemoteAddr())
-    c.timeout = time.Duration(timeout) * time.Second
     return c
 }
 
@@ -69,7 +74,6 @@ func (c *conn) serve() error {
                 return err
             }
         }
-
         if err = c.writeRESP(response); err != nil {
             return err
         }
@@ -83,11 +87,14 @@ func (c *conn) handleRequest() (redis.Resp, error) {
         if err := c.nc.SetReadDeadline(deadline); err != nil {
             return nil, err
         }
-
     }
     request, err := redis.DecodeRequest(c.r)
     if err != nil {
         return nil, err
+    }
+
+    if request.Type() == redis.TypePing {
+        return nil, nil
     }
 
     response, err := c.dispatch(request)
@@ -103,14 +110,14 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
     if err != nil {
         return toRespError(err)
     }
-    // log.Println("receive request:", cmd, args)
     s := c.s
 
     if f := c.s.htable[cmd]; f == nil {
         log.Printf("unknown command %s", cmd)
         return toRespErrorf("unknown command %s", cmd)
     } else {
-        if len(s.repl.masterAddr) > 0 && f.flag&CmdWrite > 0 {
+        masterAddr := s.repl.masterAddr.Get()
+        if len(masterAddr) > 0 && f.flag&CmdWrite > 0 {
             return toRespErrorf("READONLY You can't write against a read only slave.")
         }
 
@@ -119,6 +126,9 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
 }
 
 func (c *conn) writeRESP(resp redis.Resp) error {
+    c.wLock.Lock()
+    defer c.wLock.Unlock()
+
     if err := redis.Encode(c.w, resp); err != nil {
         return err
     }

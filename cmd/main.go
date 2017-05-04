@@ -15,7 +15,7 @@ var (
 )
 
 func init() {
-    flag.IntVar(&listenPort, "l", 12345, "listen port")
+    flag.IntVar(&listenPort, "l", 6379, "listen port")
     flag.StringVar(&dbpath, "db", "testdb", "db path")
 }
 

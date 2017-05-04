@@ -6,11 +6,14 @@ import (
     "fmt"
     "log"
     "github.com/rocket323/bitcask"
+
+    "github.com/reborndb/go/atomic2"
     redis "github.com/reborndb/go/redis/resp"
 )
 
 type Server struct {
     mu          sync.Mutex
+    runID       []byte
 
     bc          *bitcask.BitCask
     config      *Config
@@ -22,8 +25,6 @@ type Server struct {
     connMu      sync.Mutex
     conns       map[*conn]struct{}
 
-    // 40 bytes, hex random run id for different server
-    runID       []byte
     repl struct {
         sync.RWMutex
         // as maseter
@@ -31,28 +32,27 @@ type Server struct {
 
         // as slave
         masterRunId string
-        masterConnState int32
+        masterAddr atomic2.String
+        masterConnState atomic2.String
         master chan *conn
-        masterAddr string
-
         slaveofReply chan struct{}
+
         syncFileId  int64
         syncOffset  int64
     }
 
     counters struct {
-        clients         int64
-        commands        int64
-        commandsFailed  int64
-        syncTotalBytes  int64
-        syncFull        int64
-        syncPartialOK   int64
-        syncPartialErr  int64
+        clients         atomic2.Int64
+        commands        atomic2.Int64
+        commandsFailed  atomic2.Int64
+        syncTotalBytes  atomic2.Int64
+        syncFull        atomic2.Int64
+        syncPartialOK   atomic2.Int64
+        syncPartialErr  atomic2.Int64
     }
 }
 
 func NewServer(c *Config) (*Server, error) {
-
     opts := bitcask.NewOptions()
     bc, err := bitcask.Open(c.Dbpath, opts)
     if err != nil {
@@ -74,16 +74,12 @@ func NewServer(c *Config) (*Server, error) {
         l: l,
     }
 
-    server.repl.master = make(chan *conn, 0)
-    server.repl.slaveofReply = make(chan struct{}, 1)
-
     if err := server.initReplication(); err != nil {
         server.Close()
         return nil, err
     }
 
     go server.daemonSyncMaster()
-
     return server, nil
 }
 
@@ -118,24 +114,24 @@ func (s *Server) Close() {
     defer s.mu.Unlock()
 
     s.bc.Close()
-    closeConns()
+    s.closeConns()
 }
 
 func (s *Server) removeConn(c *conn) {
-    s.mu.Lock()
-    defer s.mu.Unlock()
+    s.connMu.Lock()
+    defer s.connMu.Unlock()
     delete(s.conns, c)
 }
 
 func (s *Server) addConn(c *conn) {
-    s.mu.Lock()
-    defer s.mu.Unlock()
+    s.connMu.Lock()
+    defer s.connMu.Unlock()
     s.conns[c] = struct{}{}
 }
 
 func (s *Server) closeConns() {
-    s.mu.Lock()
-    defer s.mu.Unlock()
+    s.connMu.Lock()
+    defer s.connMu.Unlock()
     for c, _ := range s.conns {
         c.Close()
     }

@@ -82,8 +82,8 @@ LOOP:
         case c = <-s.repl.master:
             needSlaveOfReply = true
         case <-retryTimer.C:
-            log.Printf("try reconnect to master %s", s.repl.masterAddr)
-            c, err = s.replicationConnectMaster(s.repl.masterAddr)
+            log.Printf("try reconnect to master %s", s.repl.masterAddr.Get())
+            c, err = s.replicationConnectMaster(s.repl.masterAddr.Get())
             if err != nil {
                 log.Printf("replication reconnect to master %s failed, try 1s laster again -%s", s.repl.masterAddr, err)
                 retryTimer.Reset(time.Second)
@@ -101,7 +101,7 @@ LOOP:
 
         if c != nil {
             masterAddr := c.nc.RemoteAddr().String()
-            s.repl.masterAddr = masterAddr
+            s.repl.masterAddr.Set(masterAddr)
             activeFileId := s.bc.ActiveFileId()
             path := s.bc.GetDataFilePath(activeFileId)
             s.bc.EnableCache(false)
@@ -116,7 +116,7 @@ LOOP:
             }(activeFileId, path)
             log.Printf("slaveof %s", s.repl.masterAddr)
         } else {
-            s.repl.masterAddr = ""
+            s.repl.masterAddr.Set("")
             s.bc.EnableCache(true)
             log.Printf("slaveof no one")
         }

@@ -7,7 +7,7 @@ type Config struct {
 
 func DefaultConfig() *Config {
     return &Config{
-        Listen: 12345,
+        Listen: 6379,
         Dbpath: "testdb",
     }
 }

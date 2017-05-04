@@ -95,8 +95,7 @@ func PingCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) != 0 {
         return toRespErrorf("len(args) = %d, expect = 0", len(args))
     }
-    return nil, nil
-    // return redis.NewString("PONG"), nil
+    return redis.NewString("PONG"), nil
 }
 
 func CommandCmd(c *conn, args [][]byte) (redis.Resp, error) {
@@ -110,7 +109,8 @@ func RoleCmd(c *conn, args [][]byte) (redis.Resp, error) {
     }
     arr := redis.NewArray()
     s := c.s
-    if s.repl.masterAddr == "" {
+    masterAddr := s.repl.masterAddr.Get()
+    if masterAddr == "" {
         // master
         arr.Append(redis.NewBulkBytesWithString("master"))
         s.repl.Lock()
@@ -130,7 +130,7 @@ func RoleCmd(c *conn, args [][]byte) (redis.Resp, error) {
     } else {
         // slave
         arr.Append(redis.NewBulkBytesWithString("slave"))
-        seps := strings.Split(s.repl.masterAddr, ":")
+        seps := strings.Split(masterAddr, ":")
         if len(seps) == 2 {
             port, err := strconv.ParseInt(seps[1], 10, 16)
             if err != nil {
@@ -147,6 +147,16 @@ func RoleCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return arr, nil
 }
 
+// INFO [section]
+func InfoCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    return nil, nil
+}
+
+// MERGE
+func MergeCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    return nil, nil
+}
+
 func init() {
     Register("command", CommandCmd, CmdReadOnly)
     Register("set", SetCmd, CmdWrite)
@@ -154,5 +164,7 @@ func init() {
     Register("del", DelCmd, CmdWrite)
     Register("ping", PingCmd, CmdReadOnly)
     Register("role", RoleCmd, CmdReadOnly)
+    Register("info", InfoCmd, CmdReadOnly)
+    register("merge", MergeCmd, CmdReadOnly)
 }
 

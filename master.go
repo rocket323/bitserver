@@ -14,6 +14,8 @@ func (s *Server) initReplication() error {
     s.repl.Lock()
     defer s.repl.Unlock()
     s.repl.slaves = make(map[*conn]chan struct{})
+    s.repl.master = make(chan *conn, 0)
+    s.repl.slaveofReply = make(chan struct{}, 1)
 
     go func() {
         for {
