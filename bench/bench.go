@@ -186,8 +186,7 @@ var (
             }
         }
     }
-    mergeProc = func(url string, triggerCh chan int, wg *sync.WaitGroup) {
-        <-triggerCh
+    mergeProc = func(url string, wg *sync.WaitGroup) {
         defer wg.Done()
 
         conn := benchGetConn(url)
@@ -197,11 +196,32 @@ var (
         }
     }
 
-    migrateProc = func(src_url string, dst_url string, slots map[int]bool, triggerCh chan int, wg *sync.WaitGroup) {
-        <-triggerCh
+    migrateProc = func(src_url string, dst_url string, slots map[int]bool, wg *sync.WaitGroup) {
         defer wg.Done()
 
-        // TODO migrate
+        conn := benchGetConn(src_url)
+        arr := strings.Split(dst_url, ":")
+        dstIp := arr[0]
+        dstPort, err := strconv.ParseInt(arr[1], 10, 32)
+        if err != nil {
+            log.Fatalf("parse port[%s] failed", arr[1])
+        }
+
+        for slot, _ := range slots {
+            for {
+                rsp, err := conn.doCmd("slotsmgrtslot", dstIp, dstPort, 1000, slot)
+                if err != nil {
+                    log.Fatalf("mgrt failed, err = %s", err)
+                }
+                x, ok := rsp.(*redis.Int)
+                if !ok {
+                    log.Fatalf("mgrt not int resp, %T", rsp)
+                }
+                if x.Value == 0 {
+                    break
+                }
+            }
+        }
     }
 )
 
@@ -234,7 +254,10 @@ func BenchReadWriteWhileMerge(svr string) {
 
     wg := &sync.WaitGroup{}
     wg.Add(1)
-    go mergeProc(urls[0], triggerCh, wg)
+    go func () {
+        <-triggerCh
+        mergeProc(svr, wg)
+    }()
 
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
@@ -252,7 +275,10 @@ func BenchReadWriteWhileMigrate(src string, dst string) {
     triggerCh := make(chan int, 1)
     wg := &sync.WaitGroup{}
     wg.Add(1)
-    go migrateProc(src, dst, slots, triggerCh, wg)
+    go func() {
+        <-triggerCh
+        migrateProc(src, dst, slots, wg)
+    }()
 
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
@@ -266,6 +292,24 @@ func BenchReadWriteWhileMigrate(src string, dst string) {
 }
 
 func BenchReadWriteMigrateWhileMerge(src string, dst string) {
+    triggerCh := make(chan int, 1)
+    wg := &sync.WaitGroup{}
+    wg.Add(2)
+    go func() {
+        <-triggerCh
+        mergeProc(src, wg)
+        migrateProc(src, dst, slots, wg)
+    }()
+
+    for i := 0; i < clientNum; i++ {
+        n := num / clientNum
+        if i == 0 {
+            n += num % clientNum
+        }
+        wg.Add(1)
+        go readWriteProc(src, n, triggerCh, wg)
+    }
+    wg.Wait()
 }
 
 func BenchReadWriteWhileSync() {
