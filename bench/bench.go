@@ -29,6 +29,7 @@ import (
 */
 
 var (
+    // flag var
     t string
     num int
     valueSize int
@@ -38,9 +39,14 @@ var (
     randomSpace int
     triggerPortion int
 
+    // normal var
     value []byte
     urls[]string
     slots = make(map[int]bool)
+
+    mu sync.Mutex
+    readWriteBegin time.Time
+    readWriteEnd time.Time
 )
 
 const (
@@ -48,14 +54,19 @@ const (
 )
 
 func init() {
-    flag.StringVar(&t, "t", "read,write,readwritewhilemerge,readwritewhilemigrate,readwritewhilesync,readwritemigratewhilesync", "test cases")
-    flag.IntVar(&num, "num", 10000, "num of operations")
-    flag.IntVar(&clientNum, "c", 1, "num of clients per server")
+    flag.StringVar(&t, "t",
+        "readwrite,readwritewhilemerge,readwritewhilemigrate,readwritemigreatewhilemerge," + \
+        "readwritewhilesync,readwritemergewhilesync,readwritemigratewhilesync",
+        "test cases")
+    flag.IntVar(&num, "num", 1000000, "num of operations")
+    flag.IntVar(&clientNum, "c", 50, "num of clients per server")
     flag.IntVar(&valueSize, "value_size", 1024, "value size")
     flag.StringVar(&servers, "servers", "127.0.0.1:6379", "servers url")
     flag.IntVar(&writePortion, "write_portion", 50, "write portion")
     flag.IntVar(&randomSpace, "r", 1e9, "key space")
     flag.IntVar(&triggerPortion, "tp", 50, "trigger portion for merge/migrate")
+
+    log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 func hashTag(key []byte) []byte {
@@ -155,28 +166,51 @@ func (c *benchConn) doMustOK(cmd string, args ...interface{}) error {
     return nil
 }
 
+func decodeIntArray(resp redis.Resp) []int64 {
+    v, ok := resp.(*redis.Array)
+    if !ok {
+        log.Fatalf("migrate resp not IntArray, but %T", resp)
+    }
+
+    arr := make([]int64, 0)
+    for _, vv := range v.Value {
+        b, ok := vv.(*redis.Int)
+        if !ok {
+            log.Fatalf("migrate resp element not Int, but %T", vv)
+        }
+        arr = append(arr, int64(b.Value))
+    }
+    if len(arr) == 0 {
+        log.Fatalf("migrate resp has zero length")
+    }
+    return arr
+}
+
 var (
     totalOps int32 = 0
 
     readWriteProc = func(url string, n int, triggerCh chan int, wg *sync.WaitGroup) {
         defer wg.Done()
         conn := benchGetConn(url)
+        writeOps := 0
+        readOps := 0
         for i := 0; i < n; i++ {
             key := randomKey()
-
-            x := rand.Int() % 2
+            x := rand.Int() % 100
             var err error
-            if x == 0 { // read
-                _, err = conn.doCmd("get", key)
-                if err != nil {
-                    log.Fatalf("get key[%s] failed, err = %s", key, err)
-                }
-            } else { // write
+            if x < writePortion { // write
+                writeOps++
                 _, slot := hashKeyToSlot([]byte(key))
                 slots[int(slot)] = true
                 _, err = conn.doCmd("set", key, value)
                 if err != nil {
                     log.Fatalf("set key[%s] failed, err = %s", key, err)
+                }
+            } else { // read
+                readOps++
+                _, err = conn.doCmd("get", key)
+                if err != nil {
+                    log.Fatalf("get key[%s] failed, err = %s", key, err)
                 }
             }
 
@@ -185,19 +219,37 @@ var (
                 triggerCh <- 1
             }
         }
+
+        // report
+        end := time.Now()
+        mu.Lock()
+        if end.After(readWriteEnd) {
+            readWriteEnd = end
+        }
+        mu.Unlock()
     }
     mergeProc = func(url string, wg *sync.WaitGroup) {
         defer wg.Done()
-
+        begin := time.Now()
+        fmt.Printf("merge start...\n")
         conn := benchGetConn(url)
         _, err := conn.doCmd("merge")
         if err != nil {
             log.Fatalf("merge failed, err = %s", err)
         }
+
+        // report
+        end := time.Now()
+        d := end.Sub(begin)
+        var report string
+        report += fmt.Sprintf("========\nmerge finish in %.2f seconds\n", d.Seconds())
+        fmt.Printf(report)
     }
 
     migrateProc = func(src_url string, dst_url string, slots map[int]bool, wg *sync.WaitGroup) {
         defer wg.Done()
+        begin := time.Now()
+        fmt.Printf("migrate from[%s] to [%s] start...\n", src_url, dst_url)
 
         conn := benchGetConn(src_url)
         arr := strings.Split(dst_url, ":")
@@ -207,28 +259,47 @@ var (
             log.Fatalf("parse port[%s] failed", arr[1])
         }
 
+        cnt := 0
         for slot, _ := range slots {
             for {
                 rsp, err := conn.doCmd("slotsmgrtslot", dstIp, dstPort, 1000, slot)
                 if err != nil {
                     log.Fatalf("mgrt failed, err = %s", err)
                 }
-                x, ok := rsp.(*redis.Int)
-                if !ok {
-                    log.Fatalf("mgrt not int resp, %T", rsp)
-                }
-                if x.Value == 0 {
+                arr := decodeIntArray(rsp)
+                if arr[0] == 0 {
                     break
                 }
             }
+            cnt++
+            log.Printf("migrated slots[%d/%d]", cnt, len(slots))
         }
+
+        // report
+        end := time.Now()
+        d := end.Sub(begin)
+        var report string
+        report += fmt.Sprintf("========\nmigrate finish in %.2f seconds\n", d.Seconds())
+        fmt.Printf(report)
     }
 )
 
-func BenchReadWrite(svr string) {
+func reportReadWrite() {
+    d := readWriteEnd.Sub(readWriteBegin)
+    writeMB := float64(num * valueSize) / 1e6
+    var report string
+    report += fmt.Sprintf("========\nread/write finish in %.2f seconds\n", d.Seconds())
+    report += fmt.Sprintf("%.2f qps\n", float64(num) / d.Seconds())
+    report += fmt.Sprintf("%.2f MB/s\n", writeMB / d.Seconds())
+    report += fmt.Sprintf("%.2f micros/op\n", d.Seconds() * 1e6 / float64(num))
+    fmt.Printf(report)
+}
+
+func benchReadWrite(svr string) {
     triggerCh := make(chan int, 1)
-    start := time.Now()
     wg := &sync.WaitGroup{}
+    readWriteBegin = time.Now()
+    readWriteEnd = time.Now()
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
         if i == 0 {
@@ -238,18 +309,10 @@ func BenchReadWrite(svr string) {
         go readWriteProc(svr, n, triggerCh, wg)
     }
     wg.Wait()
-    end := time.Now()
-    d := end.Sub(start)
-
-    // report
-    fmt.Printf("========\nget/set finish in %.2f seconds\n", d.Seconds())
-    fmt.Printf("%.2f qps\n", float64(num) / d.Seconds())
-    writeMB := float64(num * valueSize) / 1e6
-    fmt.Printf("%.2f MB/s\n", writeMB / d.Seconds())
-    fmt.Printf("%.2f micros/op\n", d.Seconds() * 1e6 / float64(num))
+    reportReadWrite()
 }
 
-func BenchReadWriteWhileMerge(svr string) {
+func benchReadWriteWhileMerge(svr string) {
     triggerCh := make(chan int, 1)
 
     wg := &sync.WaitGroup{}
@@ -259,6 +322,8 @@ func BenchReadWriteWhileMerge(svr string) {
         mergeProc(svr, wg)
     }()
 
+    readWriteBegin = time.Now()
+    readWriteEnd = time.Now()
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
         if i == 0 {
@@ -269,9 +334,10 @@ func BenchReadWriteWhileMerge(svr string) {
     }
 
     wg.Wait()
+    reportReadWrite()
 }
 
-func BenchReadWriteWhileMigrate(src string, dst string) {
+func benchReadWriteWhileMigrate(src string, dst string) {
     triggerCh := make(chan int, 1)
     wg := &sync.WaitGroup{}
     wg.Add(1)
@@ -280,6 +346,8 @@ func BenchReadWriteWhileMigrate(src string, dst string) {
         migrateProc(src, dst, slots, wg)
     }()
 
+    readWriteBegin = time.Now()
+    readWriteEnd = time.Now()
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
         if i == 0 {
@@ -289,9 +357,10 @@ func BenchReadWriteWhileMigrate(src string, dst string) {
         go readWriteProc(src, n, triggerCh, wg)
     }
     wg.Wait()
+    reportReadWrite()
 }
 
-func BenchReadWriteMigrateWhileMerge(src string, dst string) {
+func benchReadWriteMigrateWhileMerge(src string, dst string) {
     triggerCh := make(chan int, 1)
     wg := &sync.WaitGroup{}
     wg.Add(2)
@@ -301,6 +370,8 @@ func BenchReadWriteMigrateWhileMerge(src string, dst string) {
         migrateProc(src, dst, slots, wg)
     }()
 
+    readWriteBegin = time.Now()
+    readWriteEnd = time.Now()
     for i := 0; i < clientNum; i++ {
         n := num / clientNum
         if i == 0 {
@@ -310,19 +381,43 @@ func BenchReadWriteMigrateWhileMerge(src string, dst string) {
         go readWriteProc(src, n, triggerCh, wg)
     }
     wg.Wait()
+    reportReadWrite()
+}
+
+func BenchReadWrite(svr string) {
+    fmt.Printf("bench readwrite...\n")
+    benchReadWrite(svr)
+}
+
+func BenchReadWriteWhileMerge(svr string) {
+    fmt.Printf("bench readwritewhilemerge...\n")
+    benchReadWriteWhileMerge(svr)
+}
+
+func BenchReadWriteWhileMigrate(src string, dst string) {
+    fmt.Printf("bench readwritewhilemigrate...\n")
+    benchReadWriteWhileMigrate(src, dst)
+}
+
+func BenchReadWriteMigrateWhileMerge(src string, dst string) {
+    fmt.Printf("bench readwritemigratewhilemerge...\n")
+    benchReadWriteMigrateWhileMerge(src, dst)
 }
 
 func BenchReadWriteWhileSync() {
+    fmt.Printf("bench readwritewhilesync...\n")
     benchSlaveOf(urls[0], urls[1])
     BenchReadWrite(urls[0])
 }
 
 func BenchReadWriteMergeWhileSync() {
+    fmt.Printf("bench readwritemergewhilesync...\n")
     benchSlaveOf(urls[0], urls[1])
     BenchReadWriteWhileMerge(urls[0])
 }
 
 func BenchReadWriteMigrateWhileSync() {
+    fmt.Printf("bench readwritemigratewhilesync...\n")
     benchSlaveOf(urls[0], urls[1])
     benchSlaveOf(urls[2], urls[3])
     BenchReadWriteWhileMigrate(urls[0], urls[2])
@@ -331,7 +426,7 @@ func BenchReadWriteMigrateWhileSync() {
 func main() {
     flag.Parse()
     testcases := strings.Split(t, ",")
-    urls = strings.Split(servers, ",|")
+    urls = strings.Split(servers, ",")
     value = make([]byte, valueSize)
 
     for _, tc := range testcases {

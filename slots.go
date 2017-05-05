@@ -159,7 +159,7 @@ func SlotsMgrtSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
     addr := fmt.Sprintf("%s:%d", host, port)
 
     bc := c.s.bc
-    log.Printf("migrate slot, addr = %s, timeout = %d, slot = %d", addr, timeout, slot)
+    // log.Printf("migrate slot, addr = %s, timeout = %d, slot = %d", addr, timeout, slot)
     key, err := bc.FirstKeyUnderSlot(uint32(slot))
     if err != nil {
         return toRespError(err)
@@ -294,7 +294,7 @@ func SlotsRestoreCmd(c *conn, args [][]byte) (redis.Resp, error) {
             }
         }
 
-        log.Printf("restore key = %v", key)
+        // log.Printf("restore key = %v", key)
         if err := bc.SetWithExpr(key, value, uint32(expireAt)); err != nil {
             log.Printf("restore key[%v] failed, err = %s", key, err)
             return toRespError(err)
@@ -344,7 +344,7 @@ func migrate(c *conn, addr string, timeout time.Duration, keys ...[]byte) (int64
             log.Printf("del key[%v] failed, err = %s", key, err)
         }
     }
-    log.Printf("%d keys migrated", cnt)
+    // log.Printf("%d keys migrated", cnt)
     return cnt, nil
 }
 

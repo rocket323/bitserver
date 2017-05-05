@@ -11,7 +11,7 @@ type testReplSuite struct {
     slave *testSvrNode
 }
 
-// var _ = Suite(&testReplSuite{})
+var _ = Suite(&testReplSuite{})
 
 func (s *testReplSuite) SetUpSuite(c *C) {
     port1 := 17778

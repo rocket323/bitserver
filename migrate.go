@@ -184,7 +184,7 @@ func doMigrate(bc *bitcask.BitCask, addr string, timeout time.Duration, keys ...
         log.Printf("command restore failed, addr = %s, len(keys) = %d, err = %s", addr, len(keys), err)
         return 0, err
     } else {
-        log.Printf("command restore ok, addr = %s, cnt = %d", addr, cnt)
+        // log.Printf("command restore ok, addr = %s, cnt = %d", addr, cnt)
         return cnt, nil
     }
 }

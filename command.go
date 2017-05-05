@@ -154,7 +154,10 @@ func InfoCmd(c *conn, args [][]byte) (redis.Resp, error) {
 
 // MERGE
 func MergeCmd(c *conn, args [][]byte) (redis.Resp, error) {
-    return nil, nil
+    bc := c.s.bc
+    done := make(chan int, 1)
+    bc.Merge(done)
+    return redis.NewString("OK"), nil
 }
 
 func init() {
