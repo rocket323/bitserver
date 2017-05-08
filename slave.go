@@ -1,6 +1,7 @@
 package bitserver
 
 import (
+    "io"
     "os"
     "strconv"
     "strings"
@@ -74,7 +75,7 @@ LOOP:
         case <-lost:
             // here means replication conn was broken, we will reconnect it
             last = nil
-            log.Printf("replication connection from master %s was broken, try reconnect 1s later", s.repl.masterAddr)
+            log.Printf("replication connection from master %s was broken, try reconnect 1s later", s.repl.masterAddr.Get())
             retryTimer.Reset(time.Second)
             continue LOOP
         case <-s.signal:
@@ -114,7 +115,7 @@ LOOP:
                 err := s.bsync(c, activeFileId, path)
                 log.Printf("slave %s do bsync err - %s", c, err)
             }(activeFileId, path)
-            log.Printf("slaveof %s", s.repl.masterAddr)
+            log.Printf("slaveof %s", s.repl.masterAddr.Get())
         } else {
             s.repl.masterAddr.Set("")
             s.bc.EnableCache(true)
@@ -133,11 +134,11 @@ func readInt(c *conn) (int64, error) {
         return 0, err
     }
     if line[0] != '$' {
-        return 0, fmt.Errorf("invalid number, rsp = %s", line)
+        return 0, fmt.Errorf("invalid number, resp = %s", line)
     }
     n, err := strconv.ParseInt(string(line[1:]), 10, 64)
     if err != nil {
-        return 0, fmt.Errorf("invalid number, rsp = %s, err = %s", line, err)
+        return 0, fmt.Errorf("invalid number, resp = %s, err = %s", line, err)
     }
     return n, nil
 }
@@ -186,9 +187,17 @@ func (s *Server) syncFromMaster(c *conn) error {
     if err != nil {
         return err
     }
-    log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
+    data := make([]byte, int(length))
+    var n int
+    n, err = io.ReadFull(c.r, data)
 
-    err = s.bc.SyncFile(fileId, offset, length, c.r)
+    if err != nil || n < int(length) {
+        log.Fatalf("n[%d] < length[%d]", n, length)
+        return err
+    }
+    // log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
+
+    err = s.bc.SyncFile(fileId, offset, length, data)
     if err != nil {
         log.Println(err)
         return err

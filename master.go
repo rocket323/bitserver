@@ -3,7 +3,6 @@ package bitserver
 import (
     "strconv"
     "fmt"
-    "os"
     "io"
     "log"
     "time"
@@ -88,54 +87,50 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
 func (s *Server) syncDataFile(c *conn) error {
     fileId := c.syncFileId
     offset := c.syncOffset
-
     bc := s.bc
     activeFileId := bc.ActiveFileId()
 
-    path := s.bc.GetDataFilePath(fileId)
-    f, err := os.Open(path)
-    if err != nil {
-        log.Println(err)
-        return err
+    // sync records in current file to slave
+    var reachEOF bool
+    for {
+        rec, err := bc.RefRecord(fileId, offset)
+        if err != nil {
+            if err == io.EOF {
+                reachEOF = true
+            } else {
+                return err
+            }
+            break
+        }
+
+        size := rec.Size()
+        c.w.WriteString(fmt.Sprintf("$%d\r\n", fileId))
+        c.w.WriteString(fmt.Sprintf("$%d\r\n", offset))
+        c.w.WriteString(fmt.Sprintf("$%d\r\n", size))
+        // log.Printf("write data to slave %d %d %d", fileId, offset, size)
+        data, err := rec.Encode()
+        if err != nil {
+            log.Fatalf("encode record failed, %d %d %d", fileId, offset, size)
+            return err
+        }
+        if len(data) != int(size) {
+            log.Fatalf("data_len[%d] != size[%d]", len(data), size)
+        }
+        _, err = c.w.Write(data)
+        if err != nil {
+            return err
+        }
+
+        offset += size
     }
-    defer f.Close()
 
-    fi, err := f.Stat()
-    if err != nil {
-        return err
-    }
-
-    // check if more data to sync
-    if offset >= fi.Size() {
-        return nil
-    }
-    log.Printf("sync dataFile %d %d", fileId, offset)
-
-    _, err = f.Seek(offset, os.SEEK_SET)
-    if err != nil {
-        return err
-    }
-    length := fi.Size() - offset
-
-    c.w.WriteString(fmt.Sprintf("$%d\r\n", fileId))
-    c.w.WriteString(fmt.Sprintf("$%d\r\n", offset))
-    c.w.WriteString(fmt.Sprintf("$%d\r\n", length))
-
-    _, err = io.CopyN(c.w, f, length)
-    if err != nil {
-        return err
-    }
-
-    // update offset
-    offset = fi.Size()
-    if fileId < activeFileId {
+    if reachEOF && fileId < activeFileId {
         fileId = bc.NextDataFileId(fileId)
         offset = 0
     }
 
     c.syncFileId = fileId
     c.syncOffset = offset
-
     return c.w.Flush()
 }
 
