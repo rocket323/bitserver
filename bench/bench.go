@@ -55,7 +55,7 @@ const (
 
 func init() {
     flag.StringVar(&t, "t",
-        "readwrite,readwritewhilemerge,readwritewhilemigrate,readwritemigreatewhilemerge," + \
+        "readwrite,readwritewhilemerge,readwritewhilemigrate,readwritemigreatewhilemerge," +
         "readwritewhilesync,readwritemergewhilesync,readwritemigratewhilesync",
         "test cases")
     flag.IntVar(&num, "num", 1000000, "num of operations")
