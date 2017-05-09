@@ -339,7 +339,7 @@ func migrate(c *conn, addr string, timeout time.Duration, keys ...[]byte) (int64
 
     // delete from local
     for _, key := range keys {
-        err := bc.DelLocal(string(key))
+        err := bc.DelLocal(key)
         if err != nil {
             log.Printf("del key[%v] failed, err = %s", key, err)
         }

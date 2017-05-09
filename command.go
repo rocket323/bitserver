@@ -45,8 +45,8 @@ func GetCmd(c *conn, args [][]byte) (redis.Resp, error) {
     key := args[0]
     bc := c.s.bc
 
-    value, err := bc.Get(string(key))
-    if err != nil && err != bitcask.ErrNotFound {
+    value, err := bc.Get(key)
+    if err != nil && err != bitcask.ErrKeyNotFound {
         return toRespError(err)
     } else {
         return redis.NewBulkBytes(value), nil
@@ -63,7 +63,7 @@ func SetCmd(c *conn, args [][]byte) (redis.Resp, error) {
     value := args[1]
     bc := c.s.bc
 
-    err := bc.Set(string(key), value)
+    err := bc.Set(key, value)
     if err != nil {
         return toRespError(err)
     } else {
@@ -81,7 +81,7 @@ func DelCmd(c *conn, args [][]byte) (redis.Resp, error) {
     bc := c.s.bc
 
     for _, key := range keys {
-        err := bc.Del(string(key))
+        err := bc.Del(key)
         if err != nil {
             return redis.NewInt(0), err
         }
@@ -156,7 +156,17 @@ func InfoCmd(c *conn, args [][]byte) (redis.Resp, error) {
 func MergeCmd(c *conn, args [][]byte) (redis.Resp, error) {
     bc := c.s.bc
     done := make(chan int, 1)
-    bc.Merge(done)
+    bc.Merge(done, nil)
+    return redis.NewString("OK"), nil
+}
+
+// FLUSHALL
+func FlushAllCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    bc := c.s.bc
+    err := bc.ClearAll()
+    if err != nil {
+        toRespError(err)
+    }
     return redis.NewString("OK"), nil
 }
 
@@ -168,6 +178,7 @@ func init() {
     Register("ping", PingCmd, CmdReadOnly)
     Register("role", RoleCmd, CmdReadOnly)
     Register("info", InfoCmd, CmdReadOnly)
-    register("merge", MergeCmd, CmdReadOnly)
+    Register("merge", MergeCmd, CmdReadOnly)
+    register("flushall", FlushAllCmd, CmdWrite)
 }
 

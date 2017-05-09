@@ -105,7 +105,6 @@ LOOP:
             s.repl.masterAddr.Set(masterAddr)
             activeFileId := s.bc.ActiveFileId()
             path := s.bc.GetDataFilePath(activeFileId)
-            s.bc.EnableCache(false)
 
             go func(activeFileId int64, path string) {
                 defer func() {
@@ -118,7 +117,6 @@ LOOP:
             log.Printf("slaveof %s", s.repl.masterAddr.Get())
         } else {
             s.repl.masterAddr.Set("")
-            s.bc.EnableCache(true)
             log.Printf("slaveof no one")
         }
 

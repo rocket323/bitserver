@@ -163,7 +163,7 @@ func doMigrate(bc *bitcask.BitCask, addr string, timeout time.Duration, keys ...
     cmd.AppendBulkBytes([]byte("slotsrestore"))
     var cnt int64 = 0
     for _, key := range keys {
-        value, err := bc.Get(string(key))
+        value, err := bc.Get(key)
         if err != nil {
             log.Printf("mgrt key[%s] missing", key)
             continue
