@@ -187,11 +187,13 @@ func (s *Server) syncFromMaster(c *conn) error {
     }
     data := make([]byte, int(length))
     var n int
-    n, err = io.ReadFull(c.r, data)
+    if length > 0 {
+        n, err = io.ReadFull(c.r, data)
 
-    if err != nil || n < int(length) {
-        log.Fatalf("n[%d] < length[%d]", n, length)
-        return err
+        if err != nil || n < int(length) {
+            log.Fatalf("n[%d] < length[%d]", n, length)
+            return err
+        }
     }
     // log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
 

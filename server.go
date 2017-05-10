@@ -102,6 +102,12 @@ func (s *Server) Serve() error {
     return nil
 }
 
+func (s *Server) merge() error {
+    done := make(chan int, 1)
+    s.bc.Merge(done)
+    return nil
+}
+
 func (s *Server) isSlave(c *conn) bool {
     s.repl.Lock()
     defer s.repl.Unlock()

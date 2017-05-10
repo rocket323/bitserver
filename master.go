@@ -1,6 +1,7 @@
 package bitserver
 
 import (
+    "os"
     "strconv"
     "fmt"
     "io"
@@ -90,6 +91,17 @@ func (s *Server) syncDataFile(c *conn) error {
     bc := s.bc
     activeFileId := bc.ActiveFileId()
 
+    /*
+        if current sync file is deleted,
+        rotate to next file
+    */
+    dataPath := bc.GetDataFilePath(fileId)
+    if _, err := os.Stat(dataPath); err != nil {
+        log.Printf("data-file[%d] not exists, sync next file", fileId)
+        fileId = bc.NextDataFileId(fileId)
+        offset = 0
+    }
+
     // sync records in current file to slave
     var reachEOF bool
     for {
@@ -107,7 +119,6 @@ func (s *Server) syncDataFile(c *conn) error {
         c.w.WriteString(fmt.Sprintf("$%d\r\n", fileId))
         c.w.WriteString(fmt.Sprintf("$%d\r\n", offset))
         c.w.WriteString(fmt.Sprintf("$%d\r\n", size))
-        // log.Printf("write data to slave %d %d %d", fileId, offset, size)
         data, err := rec.Encode()
         if err != nil {
             log.Fatalf("encode record failed, %d %d %d", fileId, offset, size)
@@ -136,6 +147,7 @@ func (s *Server) syncDataFile(c *conn) error {
 
 func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     ch := make(chan struct{}, 1)
+    mfCh := make(chan int64, 10)
     ch <- struct{}{}
 
     s.repl.Lock()
@@ -143,7 +155,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     s.repl.Unlock()
 
     log.Printf("start sync to slave %s", c)
-    go func(c *conn, ch chan struct{}) {
+    go func(c *conn, ch chan struct{}, mfCh chan int64) {
         defer func() {
             s.removeConn(c)
             c.Close()
@@ -165,7 +177,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
                 }
             }
         }
-    }(c, ch)
+    }(c, ch, mfCh)
 }
 
 func init() {
