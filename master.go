@@ -43,10 +43,6 @@ func (s *Server) replicationNotifySlaves() error {
     return nil
 }
 
-func BReplConfCmd(c *conn, args [][]byte) (redis.Resp, error) {
-    return nil, nil
-}
-
 // BSYNC runId fileId offset
 func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) != 3 {
@@ -60,6 +56,7 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     }
 
     // runId := string(args[0])
+    // TODO check runId
 
     fileId, err := strconv.ParseInt(string(args[1]), 10, 64)
     if err != nil {
@@ -71,6 +68,8 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     }
     c.syncFileId = fileId
     c.syncOffset = offset
+
+    // TODO check data between master and slave
 
     activeFileId := s.bc.ActiveFileId()
     for c.syncFileId < activeFileId {
@@ -147,7 +146,6 @@ func (s *Server) syncDataFile(c *conn) error {
 
 func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     ch := make(chan struct{}, 1)
-    mfCh := make(chan int64, 10)
     ch <- struct{}{}
 
     s.repl.Lock()
@@ -155,7 +153,7 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
     s.repl.Unlock()
 
     log.Printf("start sync to slave %s", c)
-    go func(c *conn, ch chan struct{}, mfCh chan int64) {
+    go func(c *conn, ch chan struct{}) {
         defer func() {
             s.removeConn(c)
             c.Close()
@@ -177,11 +175,10 @@ func (s *Server) startSlaveReplication(c *conn, args [][]byte) {
                 }
             }
         }
-    }(c, ch, mfCh)
+    }(c, ch)
 }
 
 func init() {
     Register("bsync", BSyncCmd, CmdReadOnly)
-    Register("breplconf", BReplConfCmd, CmdReadOnly)
 }
 

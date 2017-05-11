@@ -133,6 +133,42 @@ func SlotsMgrtOneCmd(c *conn, args [][]byte) (redis.Resp, error) {
     return redis.NewInt(n), nil
 }
 
+// SLOTSMGRTTAGONE host port timeout key
+func SlotsMgrtTagOneCmd(c *conn, args [][]byte) (redis.Resp, error) {
+    if len(args) != 4 {
+        return toRespErrorf("len(args) = %d, expect = 4", len(args))
+    }
+    host := string(args[0])
+    port, err := strconv.ParseInt(string(args[1]), 10, 64)
+    if err != nil {
+        return toRespError(err)
+    }
+    ttlms, err := strconv.ParseInt(string(args[2]), 10, 64)
+    if err != nil {
+        return toRespError(err)
+    }
+    key := args[3]
+
+    var timeout = time.Duration(ttlms) * time.Millisecond
+    if timeout == 0 {
+        timeout = time.Second
+    }
+    addr := fmt.Sprintf("%s:%d", host, port)
+
+    log.Printf("migrate one with tag, addr = %s, timeout = %d, key = %v", addr, timeout, key)
+    var n int64
+    if tag := HashTag(key); len(tag) == len(key) {
+        n, err = migrateOne(c, addr, timeout, key)
+    } else {
+        n, err = migrateTag(c, addr, timeout, tag)
+    }
+
+    if err != nil {
+        return toRespError(err)
+    }
+    return redis.NewInt(n), nil
+}
+
 // SLOTSMGRTSLOT host port timeout slot
 func SlotsMgrtSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
     if len(args) != 4 {
@@ -180,42 +216,6 @@ func SlotsMgrtSlotCmd(c *conn, args [][]byte) (redis.Resp, error) {
         resp.AppendInt(0)
     }
     return resp, nil
-}
-
-// SLOTSMGRTTAGONE host port timeout key
-func SlotsMgrtTagOneCmd(c *conn, args [][]byte) (redis.Resp, error) {
-    if len(args) != 4 {
-        return toRespErrorf("len(args) = %d, expect = 4", len(args))
-    }
-    host := string(args[0])
-    port, err := strconv.ParseInt(string(args[1]), 10, 64)
-    if err != nil {
-        return toRespError(err)
-    }
-    ttlms, err := strconv.ParseInt(string(args[2]), 10, 64)
-    if err != nil {
-        return toRespError(err)
-    }
-    key := args[3]
-
-    var timeout = time.Duration(ttlms) * time.Millisecond
-    if timeout == 0 {
-        timeout = time.Second
-    }
-    addr := fmt.Sprintf("%s:%d", host, port)
-
-    log.Printf("migrate one with tag, addr = %s, timeout = %d, key = %v", addr, timeout, key)
-    var n int64
-    if tag := HashTag(key); len(tag) == len(key) {
-        n, err = migrateOne(c, addr, timeout, key)
-    } else {
-        n, err = migrateTag(c, addr, timeout, tag)
-    }
-
-    if err != nil {
-        return toRespError(err)
-    }
-    return redis.NewInt(n), nil
 }
 
 // SLOTSMGRTTAGSLOT host port timeout slot
@@ -301,7 +301,6 @@ func SlotsRestoreCmd(c *conn, args [][]byte) (redis.Resp, error) {
         }
     }
 
-    // TODO forward RESTORE to slave
     return redis.NewString("OK"), nil
 }
 
@@ -344,7 +343,6 @@ func migrate(c *conn, addr string, timeout time.Duration, keys ...[]byte) (int64
             log.Printf("del key[%v] failed, err = %s", key, err)
         }
     }
-    // log.Printf("%d keys migrated", cnt)
     return cnt, nil
 }
 

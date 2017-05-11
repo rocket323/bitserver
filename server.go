@@ -36,7 +36,6 @@ type Server struct {
         masterConnState atomic2.String
         master chan *conn
         slaveofReply chan struct{}
-
         syncFileId  int64
         syncOffset  int64
     }

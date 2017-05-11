@@ -195,7 +195,6 @@ func (s *Server) syncFromMaster(c *conn) error {
             return err
         }
     }
-    // log.Printf("sync fileId[%d], offset[%d], length[%d]", fileId, offset, length)
 
     err = s.bc.SyncFile(fileId, offset, length, data)
     if err != nil {

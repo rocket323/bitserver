@@ -12,11 +12,6 @@ import (
 )
 
 type conn struct {
-    /*
-        we read request from the conn goroutine,
-        but may write resp from other goroutine,
-        so we only need write lock.
-    */
     wLock sync.Mutex
 
     r *bufio.Reader
@@ -113,8 +108,8 @@ func (c *conn) dispatch(request redis.Resp) (redis.Resp, error) {
     s := c.s
 
     if f := c.s.htable[cmd]; f == nil {
-        log.Printf("unknown command %s", cmd)
-        return toRespErrorf("unknown command %s", cmd)
+        log.Printf("unknown command: %s", cmd)
+        return toRespErrorf("unknown command: %s", cmd)
     } else {
         masterAddr := s.repl.masterAddr.Get()
         if len(masterAddr) > 0 && f.flag&CmdWrite > 0 {
