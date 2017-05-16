@@ -160,6 +160,12 @@ func (s *Server) bsync(c *conn, activeFileId int64, path string) error {
         return err
     }
 
+    // send current fileIds and md5s
+    if err := s.preSync(c); err != nil {
+        log.Printf("preSync failed, err = %s", err)
+        return err
+    }
+
     log.Printf("start sync from master")
     // sync data files
     for {
@@ -169,6 +175,35 @@ func (s *Server) bsync(c *conn, activeFileId int64, path string) error {
             return err
         }
     }
+    return nil
+}
+
+func (s *Server) preSync(c *conn) error {
+    // send file metas to master
+    metas := s.bc.GetFileMetas()
+
+    resp := redis.NewArray()
+    for _, meta := range metas {
+        one := redis.NewArray()
+        one.AppendInt(int64(meta.fileId))
+        one.AppendBulkBytes(meta.md5)
+        resp.Append(one)
+    }
+
+    if err := c.writeRESP(resp); err !=  nil {
+        return err
+    }
+
+    // and get back where to start
+    startFileId, err := readInt()
+    if err != nil {
+        return err
+    }
+
+    if err := s.bc.Truncate(startFileId); err != nil {
+        return err
+    }
+
     return nil
 }
 

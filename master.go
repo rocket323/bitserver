@@ -70,6 +70,9 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     c.syncOffset = offset
 
     // TODO check data between master and slave
+    if s.checkPreSync(c); err != nil {
+        return nil, err
+    }
 
     activeFileId := s.bc.ActiveFileId()
     for c.syncFileId < activeFileId {
@@ -82,6 +85,65 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
 
     s.startSlaveReplication(c, args)
     return nil, nil
+}
+
+func (s *Server) checkPreSync(c *conn) error {
+    bc := s.bc
+    metas := bc.GetFileMetas()
+
+    resp, err := redis.Decode(c.r)
+    if err != nil {
+        return err
+    }
+
+    startFileId := int64(-1)
+    for idx, meta := range metas {
+        if idx >= len(resp.Value) {
+            startFileId = meta.FileId
+            break
+        }
+        one, ok := resp.Value[idx].(*redis.Array)
+        if !ok {
+            return err
+        }
+        if len(one.Value) != 2 {
+            return fmt.Errorf("invalid meta len")
+        }
+
+        fileId, ok := one.Value[0].(*redis.Int)
+        if !ok {
+            return fmt.Errorf("invalid fileId type")
+        }
+        md5, ok != one.Value[1].(*redis.BulkBytes)
+        if !ok {
+            return fmt.Errorf("invalid md5 type")
+        }
+
+        if fileId < meta.FileId {
+            startFileId = fileId
+            break
+        }
+        if fileId > meta.FileId {
+            startFileId = meta.FileId
+            break
+        }
+
+        if !bytes.Equal(meta.Md5, md5) {
+            startFileId = meta.FileId
+            break
+        }
+    }
+
+    if startFileId == -1 {
+        startFileId = bc.ActiveFileId()
+    }
+
+    c.w.WriteString(fmt.Sprintf("$%d\r\n", startFileId))
+    c.w.Flush()
+
+    c.syncFileId = startFileId
+    c.syncOffset = 0
+    return nil
 }
 
 func (s *Server) syncDataFile(c *conn) error {
