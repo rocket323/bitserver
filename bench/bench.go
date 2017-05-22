@@ -96,16 +96,24 @@ func randomKey() string {
     return fmt.Sprintf("%012d", rand.Int() % randomSpace)
 }
 
+func splitIpPort(url string) (string, int) {
+    l := strings.Split(url, ":")
+    ip := "127.0.0.1"
+    if len(l[0]) > 0 {
+        ip = l[0]
+    }
+    port, err := strconv.ParseInt(l[1], 10, 32)
+    if err != nil {
+        return "", 0
+    }
+    return ip, int(port)
+}
+
 func benchSlaveOf(masterUrl string, slaveUrl string) {
     masterConn := benchGetConn(slaveUrl)
-    l := strings.Split(masterUrl, ":")
-    masterIp := l[0]
-    masterPort, err := strconv.ParseInt(l[1], 10, 32)
-    if err != nil {
-        log.Fatalf("parse port[%s] failed", l[1])
-    }
+    masterIp, masterPort := splitIpPort(masterUrl)
 
-    err = masterConn.doMustOK("slaveof", masterIp, masterPort)
+    err := masterConn.doMustOK("slaveof", masterIp, masterPort)
     if err != nil {
         log.Fatalf("set %s slaveof %s failed, err = %s", slaveUrl, masterUrl, err)
     }
@@ -252,12 +260,7 @@ var (
         fmt.Printf("migrate from[%s] to [%s] start...\n", src_url, dst_url)
 
         conn := benchGetConn(src_url)
-        arr := strings.Split(dst_url, ":")
-        dstIp := arr[0]
-        dstPort, err := strconv.ParseInt(arr[1], 10, 32)
-        if err != nil {
-            log.Fatalf("parse port[%s] failed", arr[1])
-        }
+        dstIp, dstPort := splitIpPort(dst_url)
 
         cnt := 0
         for slot, _ := range slots {

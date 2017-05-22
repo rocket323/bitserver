@@ -199,6 +199,7 @@ func (s *Server) preSync(c *conn) error {
     if err != nil {
         return err
     }
+    log.Printf("start sync master from data-file[%d]", startFileId)
 
     if err := s.bc.Truncate(startFileId); err != nil {
         return err
