@@ -185,8 +185,8 @@ func (s *Server) preSync(c *conn) error {
     resp := redis.NewArray()
     for _, meta := range metas {
         one := redis.NewArray()
-        one.AppendInt(int64(meta.fileId))
-        one.AppendBulkBytes(meta.md5)
+        one.AppendInt(int64(meta.FileId))
+        one.AppendBulkBytes(meta.Md5)
         resp.Append(one)
     }
 
@@ -195,7 +195,7 @@ func (s *Server) preSync(c *conn) error {
     }
 
     // and get back where to start
-    startFileId, err := readInt()
+    startFileId, err := readInt(c)
     if err != nil {
         return err
     }

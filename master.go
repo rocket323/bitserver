@@ -2,6 +2,7 @@ package bitserver
 
 import (
     "os"
+    "bytes"
     "strconv"
     "fmt"
     "io"
@@ -51,11 +52,10 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
 
     s := c.s
     if (s.isSlave(c)) {
-        log.Printf("conn %+v is already my slave", c)
+        log.Printf("conn %s is already my slave", c)
         return nil, nil
     }
 
-    // runId := string(args[0])
     // TODO check runId
 
     fileId, err := strconv.ParseInt(string(args[1]), 10, 64)
@@ -69,7 +69,7 @@ func BSyncCmd(c *conn, args [][]byte) (redis.Resp, error) {
     c.syncFileId = fileId
     c.syncOffset = offset
 
-    // TODO check data between master and slave
+    // check data-files between master and slave
     if s.checkPreSync(c); err != nil {
         return nil, err
     }
@@ -96,13 +96,18 @@ func (s *Server) checkPreSync(c *conn) error {
         return err
     }
 
+    array, ok := resp.(*redis.Array)
+    if !ok {
+        return fmt.Errorf("invalid fileMetas type, expect Array, but %T", resp)
+    }
+
     startFileId := int64(-1)
     for idx, meta := range metas {
-        if idx >= len(resp.Value) {
+        if idx >= len(array.Value) {
             startFileId = meta.FileId
             break
         }
-        one, ok := resp.Value[idx].(*redis.Array)
+        one, ok := array.Value[idx].(*redis.Array)
         if !ok {
             return err
         }
@@ -112,23 +117,23 @@ func (s *Server) checkPreSync(c *conn) error {
 
         fileId, ok := one.Value[0].(*redis.Int)
         if !ok {
-            return fmt.Errorf("invalid fileId type")
+            return fmt.Errorf("invalid fileId type, expect Int, but %T", one.Value[0])
         }
-        md5, ok != one.Value[1].(*redis.BulkBytes)
+        md5, ok := one.Value[1].(*redis.BulkBytes)
         if !ok {
-            return fmt.Errorf("invalid md5 type")
+            return fmt.Errorf("invalid md5 type, expect BulkBytes, but %T", one.Value[1])
         }
 
-        if fileId < meta.FileId {
-            startFileId = fileId
+        if fileId.Value < meta.FileId {
+            startFileId = fileId.Value
             break
         }
-        if fileId > meta.FileId {
+        if fileId.Value > meta.FileId {
             startFileId = meta.FileId
             break
         }
 
-        if !bytes.Equal(meta.Md5, md5) {
+        if !bytes.Equal(meta.Md5, md5.Value) {
             startFileId = meta.FileId
             break
         }
